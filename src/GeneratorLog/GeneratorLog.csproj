@@ -1,0 +1,13 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ToolCommandName>generatorlog</ToolCommandName>
+    <Description>Record Roslyn source generator ETW events to an ETL file. Requires administrator privileges to enable ETW tracing.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.1.30" />
+  </ItemGroup>
+
+</Project>

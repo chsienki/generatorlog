@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ToolCommandName>generatorlog-analyze</ToolCommandName>
+    <Description>Analyze Roslyn source generator ETW events from ETL files. Reports per-generator timing statistics, execution counts, and project breakdowns.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="GeneratorLog.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.1.30" />
+    <PackageReference Include="Spectre.Console" Version="0.54.1-alpha.0.82" />
+  </ItemGroup>
+
+</Project>

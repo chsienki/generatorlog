@@ -1,0 +1,32 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Version>0.0.1-alpha</Version>
+  </PropertyGroup>
+
+  <!-- NuGet package metadata -->
+  <PropertyGroup>
+    <Authors>chsienki</Authors>
+    <Copyright>Copyright (c) chsienki</Copyright>
+    <PackageId>$(MSBuildProjectName)</PackageId>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/chsienki/generatorlog</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/chsienki/generatorlog</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>roslyn;source-generators;etw;diagnostics;dotnet-tool</PackageTags>
+  </PropertyGroup>
+
+  <!-- Tool packaging defaults for exe projects -->
+  <PropertyGroup Condition="'$(OutputType)' == 'Exe'">
+    <PackAsTool>true</PackAsTool>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(OutputType)' == 'Exe'">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>

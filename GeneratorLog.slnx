@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GeneratorLog.Analyze/GeneratorLog.Analyze.csproj" />
+    <Project Path="src/GeneratorLog/GeneratorLog.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GeneratorLog.Tests/GeneratorLog.Tests.csproj" />
+  </Folder>
+</Solution>
