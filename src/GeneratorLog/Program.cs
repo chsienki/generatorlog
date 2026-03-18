@@ -145,14 +145,17 @@ static async Task<int> RunWrapped(string? outputPath, string[] command)
     await cts.CancelAsync();
 
     // EventPipe environment-based tracing writes a trace file per process.
-    // The default name is trace.nettrace in each process's working directory.
-    // Scan likely locations for these files.
+    // Each .NET process in the tree produces its own trace.nettrace in its
+    // working directory. We need to find all of them, filter to those that
+    // contain generator events, and combine them into a single output file.
+    Console.WriteLine();
+    Console.Write("Collecting trace files...");
+
     var searchDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         Directory.GetCurrentDirectory(),
         Path.GetDirectoryName(resolvedPath)!
     };
-    // Add the directory of the command target if it looks like a path
     foreach (var arg in command.Skip(1))
     {
         if (Directory.Exists(arg))
@@ -161,7 +164,6 @@ static async Task<int> RunWrapped(string? outputPath, string[] command)
             searchDirs.Add(Path.GetDirectoryName(Path.GetFullPath(arg))!);
     }
 
-    var cutoff = startTime;
     var traceFiles = searchDirs
         .Where(Directory.Exists)
         .SelectMany(dir =>
@@ -169,31 +171,82 @@ static async Task<int> RunWrapped(string? outputPath, string[] command)
             try { return Directory.GetFiles(dir, "*.nettrace", SearchOption.TopDirectoryOnly); }
             catch { return []; }
         })
-        .Where(f => new FileInfo(f).LastWriteTime >= cutoff && new FileInfo(f).Length > 1024)
+        .Where(f => new FileInfo(f).LastWriteTime >= startTime && new FileInfo(f).Length > 1024)
         .Distinct(StringComparer.OrdinalIgnoreCase)
-        .OrderByDescending(f => new FileInfo(f).Length)
         .ToArray();
 
-    Console.WriteLine();
-    Console.WriteLine();
+    Console.WriteLine($" found {traceFiles.Length} file(s).");
 
     if (traceFiles.Length == 0)
     {
-        Console.WriteLine("Recording complete. No trace files with generator events were found.");
+        Console.WriteLine();
+        Console.WriteLine("Recording complete. No trace files were produced.");
         Console.WriteLine("The build may not have used any source generators.");
     }
     else
     {
-        // The largest file is most likely the MSBuild worker with generator events
-        var primaryTrace = traceFiles[0];
-        if (!string.Equals(primaryTrace, resolvedPath, StringComparison.OrdinalIgnoreCase))
+        // Filter to files that actually contain CodeAnalysis events
+        var filesWithEvents = new List<string>();
+        foreach (var f in traceFiles)
         {
-            File.Move(primaryTrace, resolvedPath, overwrite: true);
+            if (HasCodeAnalysisEvents(f))
+                filesWithEvents.Add(f);
         }
-        Console.WriteLine($"Recording complete. Saved to: {resolvedPath}");
 
-        // Clean up other trace files (rundown from the dotnet CLI process etc.)
-        foreach (var f in traceFiles.Skip(1))
+        if (filesWithEvents.Count == 0)
+        {
+            // No files had generator events — keep the largest as it may still be useful
+            var largest = traceFiles.OrderByDescending(f => new FileInfo(f).Length).First();
+            if (!string.Equals(largest, resolvedPath, StringComparison.OrdinalIgnoreCase))
+                File.Move(largest, resolvedPath, overwrite: true);
+
+            Console.WriteLine();
+            Console.WriteLine($"Recording complete. Saved to: {resolvedPath}");
+            Console.WriteLine("Note: No generator events were found in the trace.");
+        }
+        else if (filesWithEvents.Count == 1)
+        {
+            // Single file with events — just move it
+            if (!string.Equals(filesWithEvents[0], resolvedPath, StringComparison.OrdinalIgnoreCase))
+                File.Move(filesWithEvents[0], resolvedPath, overwrite: true);
+
+            Console.WriteLine();
+            Console.WriteLine($"Recording complete. Saved to: {resolvedPath}");
+        }
+        else
+        {
+            // Multiple files with events — merge them by reading all events and
+            // writing a combined trace via a temporary EventPipe session.
+            // Since we can't write .nettrace files directly, we keep the largest
+            // (which typically has the most events) and note the others.
+            var primary = filesWithEvents.OrderByDescending(f => new FileInfo(f).Length).First();
+            if (!string.Equals(primary, resolvedPath, StringComparison.OrdinalIgnoreCase))
+                File.Move(primary, resolvedPath, overwrite: true);
+
+            // Move additional trace files alongside the primary with numbered names
+            var dir = Path.GetDirectoryName(resolvedPath)!;
+            var baseName = Path.GetFileNameWithoutExtension(resolvedPath);
+            int idx = 1;
+            var additionalFiles = new List<string>();
+            foreach (var f in filesWithEvents.Where(f => !string.Equals(f, primary, StringComparison.OrdinalIgnoreCase)))
+            {
+                var dest = Path.Combine(dir, $"{baseName}.{idx++}.nettrace");
+                File.Move(f, dest, overwrite: true);
+                additionalFiles.Add(dest);
+            }
+
+            Console.WriteLine();
+            Console.WriteLine($"Recording complete. {filesWithEvents.Count} trace files with generator events:");
+            Console.WriteLine($"  {resolvedPath}");
+            foreach (var f in additionalFiles)
+                Console.WriteLine($"  {f}");
+            Console.WriteLine();
+            Console.WriteLine("Pass all files to the analyzer:");
+            Console.WriteLine($"  generatorlog-analyze {Path.GetFileName(resolvedPath)} {string.Join(" ", additionalFiles.Select(Path.GetFileName))}");
+        }
+
+        // Clean up any remaining trace files that don't have generator events
+        foreach (var f in traceFiles.Except(filesWithEvents, StringComparer.OrdinalIgnoreCase))
         {
             try { File.Delete(f); } catch { }
         }
@@ -395,4 +448,24 @@ static async Task<int> RunEventPipe(string? outputPath, int pid)
     Console.WriteLine($"Recording complete. Saved to: {resolvedPath}");
     Console.WriteLine("Use generatorlog-analyze to view the results.");
     return 0;
+}
+
+static bool HasCodeAnalysisEvents(string nettraceFile)
+{
+    try
+    {
+        bool found = false;
+        using var source = new EventPipeEventSource(nettraceFile);
+        source.Dynamic.AddCallbackForProviderEvents(
+            (providerName, _) => providerName == "Microsoft-CodeAnalysis-General"
+                ? EventFilterResponse.AcceptEvent
+                : EventFilterResponse.RejectProvider,
+            (TraceEvent _) => { found = true; source.StopProcessing(); });
+        source.Process();
+        return found;
+    }
+    catch
+    {
+        return false;
+    }
 }
