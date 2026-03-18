@@ -122,15 +122,7 @@ Press **Ctrl+C** to stop, or it stops automatically when the process exits.
 
 When using VS Code with the C# extension (C# Dev Kit), source generators run inside the **Roslyn language server**, not the `code` process itself. The language server runs as a `dotnet` process with `Microsoft.CodeAnalysis.LanguageServer.dll` in its arguments.
 
-**Windows:** Just use system-wide tracing — no need to find the PID:
-
-```
-dnx generatorlog
-```
-
-This will capture all generator events from VS Code (and any other builds running at the same time).
-
-**macOS / Linux:**
+On macOS / Linux, find and attach to it:
 
 ```bash
 # Find the Roslyn language server process
