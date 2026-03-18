@@ -5,14 +5,31 @@ This guide will help you capture a trace of Roslyn source generator activity dur
 ## Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) or later installed
-- **Windows:** Administrator access (for system-wide ETW tracing)
-- **macOS/Linux:** No special permissions needed (uses EventPipe, per-process)
+- **Windows:** Administrator access (for system-wide ETW tracing), or use `-- <command>` mode which doesn't require admin
+- **macOS/Linux:** No special permissions needed (uses EventPipe)
 
 ---
 
-## Windows
+## Quick Start (any platform)
 
-On Windows, the tool captures events **system-wide** — you don't need to know the process ID of your build. Just start recording, build normally in another window, and stop when you're done.
+The simplest way to capture a trace on any platform:
+
+```
+dnx generatorlog@0.0.3-alpha -- dotnet build
+```
+
+This launches `dotnet build`, traces all generator events from every process in the build, and saves the result to `generators.nettrace` when the build completes.
+
+> **Tip:** If something isn't working as expected, add `--verbose` to see exactly what the tool is doing:
+> ```
+> dnx generatorlog@0.0.3-alpha --verbose -- dotnet build
+> ```
+
+---
+
+## Windows (system-wide ETW)
+
+On Windows, the tool can also capture events **system-wide** — you don't need to know the process ID of your build. This is useful when building from Visual Studio or other IDEs.
 
 ### 1. Open a terminal
 
@@ -82,7 +99,7 @@ Send the `generators.etl` file from your project directory to whoever requested 
 
 ## macOS / Linux
 
-On non-Windows platforms, the tool traces a specific process via EventPipe. The easiest approach is to use `--` to wrap your build command — the tool launches it and traces automatically.
+On non-Windows platforms, the tool traces via EventPipe. The recommended approach is to use `--` to wrap your build command.
 
 ### Option A: Wrap a build command (recommended)
 
@@ -90,7 +107,12 @@ On non-Windows platforms, the tool traces a specific process via EventPipe. The 
 dnx generatorlog@0.0.3-alpha -- dotnet build
 ```
 
-The tool launches `dotnet build`, attaches tracing immediately, records all generator events, and stops when the build completes. The trace is saved to `generators.nettrace`.
+The tool:
+1. Launches `dotnet build` with EventPipe tracing enabled
+2. Disables MSBuild node reuse and compiler server so all processes are traced
+3. Waits for the build to complete
+4. Collects all trace files, filters to those with generator events
+5. Produces a single output file (`generators.nettrace`, or `generators.nettrace.zip` if multiple processes had events)
 
 > This also works on Windows if you prefer per-process tracing over system-wide ETW.
 
@@ -134,7 +156,7 @@ dnx generatorlog@0.0.3-alpha --pid <pid>
 
 ### Share the trace file
 
-Send the resulting `.etl` or `.nettrace` file to whoever requested the trace. If you run the tool multiple times, it creates `generators (1).etl`, `generators (1).nettrace`, etc.
+Send the resulting `.etl`, `.nettrace`, or `.nettrace.zip` file to whoever requested the trace. If you run the tool multiple times, it creates `generators (1).etl`, `generators (1).nettrace`, etc.
 
 ---
 
@@ -147,28 +169,34 @@ Send the resulting `.etl` or `.nettrace` file to whoever requested the trace. If
 | Counter stays at 0 during build (Windows) | Ensure you're building a project that uses source generators. |
 | Permission denied (Windows) | Close other tracing tools (PerfView, Event Viewer) that may hold the ETW session. |
 | "Could not connect to process" | Ensure the target is a .NET process and is still running when you attach. |
-| "Process exited before tracing could start" | The build finished too quickly. Try `-- dotnet watch build` or a larger project. |
+| No generator events found | Use `--verbose` to see which files were collected and scanned. The build may not use source generators, or the trace files may be in an unexpected directory. |
+
+> **Tip:** When reporting issues or debugging unexpected behavior, run with `--verbose` and include the output.
 
 ## Advanced Options
 
-Wrap a build command (any platform):
+All options:
 
-```bash
-dnx generatorlog@0.0.3-alpha -- dotnet build
-dnx generatorlog@0.0.3-alpha --output ~/traces/mybuild.nettrace -- dotnet build
+```
+generatorlog [options] [-- <command> [args...]]
+
+Options:
+  --output, -o <path>   Output file path
+  --pid, -p <pid>       Trace a specific process
+  --verbose, -v         Show detailed diagnostic output
+  -- <command>          Launch and trace a command
 ```
 
 Save the trace to a specific location:
 
 ```bash
+dnx generatorlog@0.0.3-alpha --output ~/traces/mybuild.nettrace -- dotnet build
+
 # Windows (ETW)
 dnx generatorlog@0.0.3-alpha --output C:\traces\mybuild.etl
-
-# Any platform (EventPipe)
-dnx generatorlog@0.0.3-alpha --pid <pid> --output ~/traces/mybuild.nettrace
 ```
 
-On Windows, you can also trace a specific process via EventPipe instead of system-wide ETW:
+On Windows, trace a specific process via EventPipe instead of system-wide ETW:
 
 ```
 dnx generatorlog@0.0.3-alpha --pid 12345

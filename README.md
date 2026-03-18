@@ -8,7 +8,7 @@ Tools for recording and analyzing Roslyn source generator events.
 
 Record source generator events from the `Microsoft-CodeAnalysis-General` provider to a trace file.
 
-**Wrap a build command (any platform):**
+**Wrap a build command (recommended, any platform):**
 
 ```
 dnx generatorlog@0.0.3-alpha -- dotnet build
@@ -17,32 +17,48 @@ dnx generatorlog@0.0.3-alpha -- dotnet build
 **Windows (system-wide via ETW, no PID needed):**
 
 ```
-dnx generatorlog@0.0.3-alpha [--output|-o <path>]
+dnx generatorlog@0.0.3-alpha
 ```
 
 **Attach to a running process (any platform):**
 
 ```
-dnx generatorlog@0.0.3-alpha --pid <pid> [--output|-o <path>]
+dnx generatorlog@0.0.3-alpha --pid <pid>
 ```
 
-- `-- <command>`: Launches the command and traces it via EventPipe. Works on all platforms.
-- No arguments (Windows only): system-wide ETW capture, auto-elevates via UAC, produces `.etl` files
-- `--pid`: attaches to a running process via EventPipe, produces `.nettrace` files
-- Default output: `generators.etl` (ETW) or `generators.nettrace` (EventPipe) with collision avoidance
-- Shows live progress; press `Ctrl+C` to stop recording
+**Options:**
+| Option | Description |
+|---|---|
+| `-- <command>` | Launch a command and trace it via EventPipe. Works on all platforms. |
+| `--output, -o <path>` | Output file path. Defaults to `generators.etl` (ETW) or `generators.nettrace` (EventPipe). |
+| `--pid, -p <pid>` | Attach to a running process via EventPipe. |
+| `--verbose, -v` | Show detailed diagnostic output (file operations, ETW/EventPipe setup, etc). |
+
+**Notes:**
+- `-- <command>` mode automatically handles MSBuild's multi-process architecture: disables node reuse and compiler server, collects trace files from all child processes, and produces a single output file.
+- If multiple processes emit generator events (multi-project builds), they are bundled into a `.nettrace.zip` archive.
+- Default output filenames use collision avoidance: `generators.etl`, `generators (1).etl`, etc.
 
 ### `generatorlog-analyze` — Trace Analyzer
 
 Analyze trace files containing Roslyn source generator events and display statistics.
 
 ```
-dnx generatorlog-analyze@0.0.3-alpha [--csv|-c <path>] <file.etl|file.nettrace> [...]
+dnx generatorlog-analyze@0.0.3-alpha [options] <file.etl|file.nettrace|file.zip> [...]
 ```
 
-- Works with `.etl` files (from ETW) and `.nettrace` files (from EventPipe)
-- Reports per-process and per-generator statistics: execution counts, min/avg/max timing, cumulative time
-- Optional CSV export with `--csv`
+**Options:**
+| Option | Description |
+|---|---|
+| `--csv, -c <path>` | Export results as CSV. |
+| `--verbose, -v` | Show detailed diagnostic output. |
+
+**Supported formats:** `.etl` (ETW), `.nettrace` (EventPipe), `.nettrace.zip` (bundled traces from `-- <command>` mode).
+
+**Output includes:**
+- Summary: total driver runs, generator executions, unique generators, process count
+- Per-process overview table
+- Per-generator statistics: execution count, min/avg/max timing, cumulative time, projects
 
 ## Installation
 
