@@ -118,9 +118,42 @@ dnx generatorlog --pid <pid>
 
 Press **Ctrl+C** to stop, or it stops automatically when the process exits.
 
+### Tracing VS Code (C# Dev Kit)
+
+When using VS Code with the C# extension (C# Dev Kit), source generators run inside the **Roslyn language server**, not the `code` process itself. The language server runs as a `dotnet` process with `Microsoft.CodeAnalysis.LanguageServer.dll` in its arguments.
+
+To find and trace it:
+
+**Windows (PowerShell):**
+
+```powershell
+# Find the Roslyn language server process
+Get-Process dotnet | Where-Object {
+    (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine -like '*Microsoft.CodeAnalysis.LanguageServer*'
+} | Format-Table Id, ProcessName
+
+# Then either trace system-wide (simplest):
+dnx generatorlog
+
+# Or attach to the specific process:
+dnx generatorlog --pid <pid>
+```
+
+**macOS / Linux:**
+
+```bash
+# Find the Roslyn language server process
+ps aux | grep Microsoft.CodeAnalysis.LanguageServer
+
+# Attach to it
+dnx generatorlog --pid <pid>
+```
+
+> **Tip:** On Windows you can skip finding the PID entirely — just run `dnx generatorlog` without `--pid` to capture all generator events system-wide via ETW, which will include VS Code builds.
+
 ### Share the trace file
 
-Send the resulting `.nettrace` file to whoever requested the trace. If you run the tool multiple times, it creates `generators (1).nettrace`, `generators (2).nettrace`, etc.
+Send the resulting `.etl` or `.nettrace` file to whoever requested the trace. If you run the tool multiple times, it creates `generators (1).etl`, `generators (1).nettrace`, etc.
 
 ---
 
