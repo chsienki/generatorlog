@@ -4,6 +4,8 @@
 ## Get latest from `dotnet new gitignore`
 
 # Project artifacts
+*.etl
+*.nettrace
 artifacts/
 
 # dotenv files
