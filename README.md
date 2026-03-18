@@ -11,19 +11,19 @@ Record source generator events from the `Microsoft-CodeAnalysis-General` provide
 **Wrap a build command (recommended, any platform):**
 
 ```
-dnx generatorlog@0.0.4-alpha -- dotnet build
+dnx generatorlog@0.0.5-alpha -- dotnet build
 ```
 
 **Windows (system-wide via ETW, no PID needed):**
 
 ```
-dnx generatorlog@0.0.4-alpha
+dnx generatorlog@0.0.5-alpha
 ```
 
 **Attach to a running process (any platform):**
 
 ```
-dnx generatorlog@0.0.4-alpha --pid <pid>
+dnx generatorlog@0.0.5-alpha --pid <pid>
 ```
 
 **Options:**
@@ -44,7 +44,7 @@ dnx generatorlog@0.0.4-alpha --pid <pid>
 Analyze trace files containing Roslyn source generator events and display statistics.
 
 ```
-dnx generatorlog-analyze@0.0.4-alpha [options] <file.etl|file.nettrace|file.zip> [...]
+dnx generatorlog-analyze@0.0.5-alpha [options] <file.etl|file.nettrace|file.zip> [...]
 ```
 
 **Options:**
@@ -65,15 +65,15 @@ dnx generatorlog-analyze@0.0.4-alpha [options] <file.etl|file.nettrace|file.zip>
 ### One-shot via dnx (.NET 10+)
 
 ```
-dnx generatorlog@0.0.4-alpha -- dotnet build
-dnx generatorlog-analyze@0.0.4-alpha generators.nettrace
+dnx generatorlog@0.0.5-alpha -- dotnet build
+dnx generatorlog-analyze@0.0.5-alpha generators.nettrace
 ```
 
 ### As global tools
 
 ```
-dotnet tool install -g GeneratorLog --version 0.0.4-alpha
-dotnet tool install -g GeneratorLog.Analyze --version 0.0.4-alpha
+dotnet tool install -g GeneratorLog --version 0.0.5-alpha
+dotnet tool install -g GeneratorLog.Analyze --version 0.0.5-alpha
 ```
 
 ## Customer guide

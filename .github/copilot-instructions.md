@@ -135,7 +135,7 @@ Edit `Directory.Build.props` and update the `<Version>` element. Use [SemVer](ht
 All `dnx` commands in `README.md`, `docs/recording-guide.md`, and `.github/copilot-instructions.md` include `@version` (required for pre-release). Update them:
 
 ```powershell
-$old = '0.0.4-alpha'  # previous version
+$old = '0.0.5-alpha'  # previous version
 $new = '0.0.5-alpha'  # new version
 foreach ($f in @('README.md', 'docs\recording-guide.md', '.github\copilot-instructions.md')) {
     (Get-Content $f -Raw) -replace [regex]::Escape($old), $new | Set-Content $f -NoNewline
