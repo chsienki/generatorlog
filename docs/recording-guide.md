@@ -29,7 +29,7 @@ cd C:\path\to\your\project
 ### 3. Start recording
 
 ```
-dnx generatorlog
+dnx generatorlog@0.0.2-alpha
 ```
 
 You should see:
@@ -87,7 +87,7 @@ On non-Windows platforms, the tool traces a specific process via EventPipe. The 
 ### Option A: Wrap a build command (recommended)
 
 ```bash
-dnx generatorlog -- dotnet build
+dnx generatorlog@0.0.2-alpha -- dotnet build
 ```
 
 The tool launches `dotnet build`, attaches tracing immediately, records all generator events, and stops when the build completes. The trace is saved to `generators.nettrace`.
@@ -113,7 +113,7 @@ ps aux | grep dotnet
 #### 3. Attach the recorder
 
 ```bash
-dnx generatorlog --pid <pid>
+dnx generatorlog@0.0.2-alpha --pid <pid>
 ```
 
 Press **Ctrl+C** to stop, or it stops automatically when the process exits.
@@ -129,7 +129,7 @@ On macOS / Linux, find and attach to it:
 ps aux | grep Microsoft.CodeAnalysis.LanguageServer
 
 # Attach to it
-dnx generatorlog --pid <pid>
+dnx generatorlog@0.0.2-alpha --pid <pid>
 ```
 
 ### Share the trace file
@@ -154,28 +154,28 @@ Send the resulting `.etl` or `.nettrace` file to whoever requested the trace. If
 Wrap a build command (any platform):
 
 ```bash
-dnx generatorlog -- dotnet build
-dnx generatorlog --output ~/traces/mybuild.nettrace -- dotnet build
+dnx generatorlog@0.0.2-alpha -- dotnet build
+dnx generatorlog@0.0.2-alpha --output ~/traces/mybuild.nettrace -- dotnet build
 ```
 
 Save the trace to a specific location:
 
 ```bash
 # Windows (ETW)
-dnx generatorlog --output C:\traces\mybuild.etl
+dnx generatorlog@0.0.2-alpha --output C:\traces\mybuild.etl
 
 # Any platform (EventPipe)
-dnx generatorlog --pid <pid> --output ~/traces/mybuild.nettrace
+dnx generatorlog@0.0.2-alpha --pid <pid> --output ~/traces/mybuild.nettrace
 ```
 
 On Windows, you can also trace a specific process via EventPipe instead of system-wide ETW:
 
 ```
-dnx generatorlog --pid 12345
+dnx generatorlog@0.0.2-alpha --pid 12345
 ```
 
 For full help:
 
 ```
-dnx generatorlog --help
+dnx generatorlog@0.0.2-alpha --help
 ```
