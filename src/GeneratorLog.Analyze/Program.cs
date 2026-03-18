@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text;
 using GeneratorLog.Analyze;
 using Microsoft.Diagnostics.Tracing;
@@ -181,7 +182,27 @@ static void RenderPerGeneratorTable(List<ProcessInfo> processes)
 static void ProcessTraceFile(FileInfo file, EventProcessor processor)
 {
     var extension = file.Extension.ToLowerInvariant();
-    if (extension == ".nettrace")
+
+    if (extension == ".zip")
+    {
+        // Handle .nettrace.zip bundles — extract each entry to a temp file and process it
+        var tempDir = Path.Combine(Path.GetTempPath(), $"generatorlog-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            ZipFile.ExtractToDirectory(file.FullName, tempDir);
+            foreach (var entry in Directory.GetFiles(tempDir, "*.nettrace"))
+            {
+                AnsiConsole.MarkupLine($"  [dim]Processing entry: {Path.GetFileName(entry)}[/]");
+                ProcessTraceFile(new FileInfo(entry), processor);
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+    else if (extension == ".nettrace")
     {
         using var source = new EventPipeEventSource(file.FullName);
         source.Dynamic.AddCallbackForProviderEvents(

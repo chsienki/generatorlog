@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.Tracing;
+using System.IO.Compression;
 using GeneratorLog;
 using Microsoft.Diagnostics.NETCore.Client;
 using Microsoft.Diagnostics.Tracing;
@@ -147,7 +148,7 @@ static async Task<int> RunWrapped(string? outputPath, string[] command)
     // EventPipe environment-based tracing writes a trace file per process.
     // Each .NET process in the tree produces its own trace.nettrace in its
     // working directory. We need to find all of them, filter to those that
-    // contain generator events, and combine them into a single output file.
+    // contain generator events, and produce a single output file.
     Console.WriteLine();
     Console.Write("Collecting trace files...");
 
@@ -186,12 +187,14 @@ static async Task<int> RunWrapped(string? outputPath, string[] command)
     else
     {
         // Filter to files that actually contain CodeAnalysis events
+        Console.Write("Scanning for generator events...");
         var filesWithEvents = new List<string>();
         foreach (var f in traceFiles)
         {
             if (HasCodeAnalysisEvents(f))
                 filesWithEvents.Add(f);
         }
+        Console.WriteLine($" {filesWithEvents.Count} file(s) with events.");
 
         if (filesWithEvents.Count == 0)
         {
@@ -215,38 +218,26 @@ static async Task<int> RunWrapped(string? outputPath, string[] command)
         }
         else
         {
-            // Multiple files with events — merge them by reading all events and
-            // writing a combined trace via a temporary EventPipe session.
-            // Since we can't write .nettrace files directly, we keep the largest
-            // (which typically has the most events) and note the others.
-            var primary = filesWithEvents.OrderByDescending(f => new FileInfo(f).Length).First();
-            if (!string.Equals(primary, resolvedPath, StringComparison.OrdinalIgnoreCase))
-                File.Move(primary, resolvedPath, overwrite: true);
+            // Multiple files with events — zip them into a single archive
+            var zipPath = Path.ChangeExtension(resolvedPath, ".nettrace.zip");
+            Console.Write($"Merging {filesWithEvents.Count} trace files into {Path.GetFileName(zipPath)}...");
 
-            // Move additional trace files alongside the primary with numbered names
-            var dir = Path.GetDirectoryName(resolvedPath)!;
-            var baseName = Path.GetFileNameWithoutExtension(resolvedPath);
-            int idx = 1;
-            var additionalFiles = new List<string>();
-            foreach (var f in filesWithEvents.Where(f => !string.Equals(f, primary, StringComparison.OrdinalIgnoreCase)))
+            using (var zip = System.IO.Compression.ZipFile.Open(zipPath, System.IO.Compression.ZipArchiveMode.Create))
             {
-                var dest = Path.Combine(dir, $"{baseName}.{idx++}.nettrace");
-                File.Move(f, dest, overwrite: true);
-                additionalFiles.Add(dest);
+                for (int i = 0; i < filesWithEvents.Count; i++)
+                {
+                    var entryName = $"trace-{i + 1}.nettrace";
+                    zip.CreateEntryFromFile(filesWithEvents[i], entryName, System.IO.Compression.CompressionLevel.Optimal);
+                }
             }
 
+            Console.WriteLine(" done.");
             Console.WriteLine();
-            Console.WriteLine($"Recording complete. {filesWithEvents.Count} trace files with generator events:");
-            Console.WriteLine($"  {resolvedPath}");
-            foreach (var f in additionalFiles)
-                Console.WriteLine($"  {f}");
-            Console.WriteLine();
-            Console.WriteLine("Pass all files to the analyzer:");
-            Console.WriteLine($"  generatorlog-analyze {Path.GetFileName(resolvedPath)} {string.Join(" ", additionalFiles.Select(Path.GetFileName))}");
+            Console.WriteLine($"Recording complete. Saved to: {zipPath}");
         }
 
-        // Clean up any remaining trace files that don't have generator events
-        foreach (var f in traceFiles.Except(filesWithEvents, StringComparer.OrdinalIgnoreCase))
+        // Clean up all collected trace files
+        foreach (var f in traceFiles)
         {
             try { File.Delete(f); } catch { }
         }
