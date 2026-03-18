@@ -1,5 +1,6 @@
 using System.Text;
 using GeneratorLog.Analyze;
+using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Spectre.Console;
 
@@ -55,14 +56,7 @@ static int Run(List<FileInfo> files, FileInfo? csvFile)
 
         var processor = new EventProcessor();
 
-        using var traceLog = TraceLog.OpenOrConvert(file.FullName);
-        foreach (var e in traceLog.Events)
-        {
-            if (e.ProviderName == EventProcessor.CodeAnalysisEtwName)
-            {
-                processor.ProcessEvent(e);
-            }
-        }
+        ProcessTraceFile(file, processor);
 
         allProcessInfo.AddRange(processor.ProcessInfo);
     }
@@ -181,5 +175,32 @@ static void RenderPerGeneratorTable(List<ProcessInfo> processes)
         }
 
         AnsiConsole.Write(table);
+    }
+}
+
+static void ProcessTraceFile(FileInfo file, EventProcessor processor)
+{
+    var extension = file.Extension.ToLowerInvariant();
+    if (extension == ".nettrace")
+    {
+        using var source = new EventPipeEventSource(file.FullName);
+        source.Dynamic.AddCallbackForProviderEvents(
+            (providerName, eventName) => providerName == EventProcessor.CodeAnalysisEtwName
+                ? EventFilterResponse.AcceptEvent
+                : EventFilterResponse.RejectProvider,
+            processor.ProcessEvent);
+        source.Process();
+    }
+    else
+    {
+        // .etl or .etlx
+        using var traceLog = TraceLog.OpenOrConvert(file.FullName);
+        foreach (var e in traceLog.Events)
+        {
+            if (e.ProviderName == EventProcessor.CodeAnalysisEtwName)
+            {
+                processor.ProcessEvent(e);
+            }
+        }
     }
 }
