@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <PackAsTool>true</PackAsTool>
     <ToolCommandName>generatorlog-analyze</ToolCommandName>
     <Description>Analyze Roslyn source generator ETW events from ETL files. Reports per-generator timing statistics, execution counts, and project breakdowns.</Description>
   </PropertyGroup>

@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <PackAsTool>true</PackAsTool>
     <ToolCommandName>generatorlog</ToolCommandName>
     <Description>Record Roslyn source generator ETW events to an ETL file. Requires administrator privileges to enable ETW tracing.</Description>
   </PropertyGroup>

@@ -56,8 +56,8 @@ dnx generatorlog-analyze generators.nettrace
 ### As global tools
 
 ```
-dotnet tool install -g GeneratorLog
-dotnet tool install -g GeneratorLog.Analyze
+dotnet tool install -g GeneratorLog --version 0.0.2-alpha
+dotnet tool install -g GeneratorLog.Analyze --version 0.0.2-alpha
 ```
 
 ## Customer guide
