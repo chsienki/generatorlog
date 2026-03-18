@@ -11,19 +11,19 @@ Record source generator events from the `Microsoft-CodeAnalysis-General` provide
 **Wrap a build command (any platform):**
 
 ```
-dnx generatorlog@0.0.2-alpha -- dotnet build
+dnx generatorlog@0.0.3-alpha -- dotnet build
 ```
 
 **Windows (system-wide via ETW, no PID needed):**
 
 ```
-dnx generatorlog@0.0.2-alpha [--output|-o <path>]
+dnx generatorlog@0.0.3-alpha [--output|-o <path>]
 ```
 
 **Attach to a running process (any platform):**
 
 ```
-dnx generatorlog@0.0.2-alpha --pid <pid> [--output|-o <path>]
+dnx generatorlog@0.0.3-alpha --pid <pid> [--output|-o <path>]
 ```
 
 - `-- <command>`: Launches the command and traces it via EventPipe. Works on all platforms.
@@ -37,7 +37,7 @@ dnx generatorlog@0.0.2-alpha --pid <pid> [--output|-o <path>]
 Analyze trace files containing Roslyn source generator events and display statistics.
 
 ```
-dnx generatorlog-analyze@0.0.2-alpha [--csv|-c <path>] <file.etl|file.nettrace> [...]
+dnx generatorlog-analyze@0.0.3-alpha [--csv|-c <path>] <file.etl|file.nettrace> [...]
 ```
 
 - Works with `.etl` files (from ETW) and `.nettrace` files (from EventPipe)
@@ -49,15 +49,15 @@ dnx generatorlog-analyze@0.0.2-alpha [--csv|-c <path>] <file.etl|file.nettrace> 
 ### One-shot via dnx (.NET 10+)
 
 ```
-dnx generatorlog@0.0.2-alpha -- dotnet build
-dnx generatorlog-analyze@0.0.2-alpha generators.nettrace
+dnx generatorlog@0.0.3-alpha -- dotnet build
+dnx generatorlog-analyze@0.0.3-alpha generators.nettrace
 ```
 
 ### As global tools
 
 ```
-dotnet tool install -g GeneratorLog --version 0.0.2-alpha
-dotnet tool install -g GeneratorLog.Analyze --version 0.0.2-alpha
+dotnet tool install -g GeneratorLog --version 0.0.3-alpha
+dotnet tool install -g GeneratorLog.Analyze --version 0.0.3-alpha
 ```
 
 ## Customer guide

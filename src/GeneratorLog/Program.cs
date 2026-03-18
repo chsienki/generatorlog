@@ -237,13 +237,20 @@ static async Task<int> RunEtw(string? outputPath)
     int generatorExecutions = 0;
     var cts = new CancellationTokenSource();
 
-    using var session = new TraceEventSession("GeneratorLog-Session", resolvedPath);
+    // Create a real-time session for live event callbacks, and set a file to capture the ETL
+    using var session = new TraceEventSession("GeneratorLog-Session");
+    session.EnableProvider("Microsoft-CodeAnalysis-General", Microsoft.Diagnostics.Tracing.TraceEventLevel.Verbose);
+
+    // Start a secondary file-logging session that captures the same provider to an ETL file
+    using var fileSession = new TraceEventSession("GeneratorLog-FileSession", resolvedPath);
+    fileSession.EnableProvider("Microsoft-CodeAnalysis-General", Microsoft.Diagnostics.Tracing.TraceEventLevel.Verbose);
 
     Console.CancelKeyPress += (s, e) =>
     {
         e.Cancel = true;
         cts.Cancel();
         session.Stop();
+        fileSession.Stop();
     };
 
     session.Source.Dynamic.AddCallbackForProviderEvent(
@@ -255,8 +262,6 @@ static async Task<int> RunEtw(string? outputPath)
         "Microsoft-CodeAnalysis-General",
         "SingleGeneratorRunTime/Stop",
         (TraceEvent data) => Interlocked.Increment(ref generatorExecutions));
-
-    session.EnableProvider("Microsoft-CodeAnalysis-General", Microsoft.Diagnostics.Tracing.TraceEventLevel.Verbose);
 
     _ = Task.Run(async () =>
     {
