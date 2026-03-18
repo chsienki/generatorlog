@@ -131,8 +131,8 @@ Edit `Directory.Build.props` and update the `<Version>` element. Use [SemVer](ht
 All `dnx` commands in `README.md` and `docs/recording-guide.md` include `@version` (required for pre-release). Update them:
 
 ```powershell
-$old = '0.0.3-alpha'  # previous version
-$new = '0.0.4-alpha'  # new version
+$old = '0.0.4-alpha'  # previous version
+$new = '0.0.5-alpha'  # new version
 foreach ($f in @('README.md', 'docs\recording-guide.md')) {
     (Get-Content $f -Raw) -replace [regex]::Escape($old), $new | Set-Content $f -NoNewline
 }

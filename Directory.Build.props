@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.0.3-alpha</Version>
+    <Version>0.0.4-alpha</Version>
   </PropertyGroup>
 
   <!-- NuGet package metadata -->
