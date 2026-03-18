@@ -13,6 +13,26 @@ public class RecorderArgsTests
         Assert.Null(options.Pid);
         Assert.Null(options.WrappedCommand);
         Assert.False(options.ShowHelp);
+        Assert.False(options.Verbose);
+    }
+
+    [Theory]
+    [InlineData("--verbose")]
+    [InlineData("-v")]
+    public void Parse_VerboseFlag_SetsVerbose(string flag)
+    {
+        var options = RecorderArgs.Parse([flag]);
+
+        Assert.True(options.Verbose);
+    }
+
+    [Fact]
+    public void Parse_VerboseWithOtherOptions_SetsBoth()
+    {
+        var options = RecorderArgs.Parse(["-v", "--output", "trace.etl"]);
+
+        Assert.True(options.Verbose);
+        Assert.Equal("trace.etl", options.OutputPath);
     }
 
     [Theory]

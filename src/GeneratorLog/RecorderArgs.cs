@@ -7,7 +7,8 @@ public record RecorderOptions(
     string? OutputPath,
     int? Pid,
     string[]? WrappedCommand,
-    bool ShowHelp);
+    bool ShowHelp,
+    bool Verbose);
 
 /// <summary>
 /// Parses command-line arguments for the generatorlog recorder.
@@ -20,6 +21,7 @@ public static class RecorderArgs
         int? pid = null;
         string[]? wrappedCommand = null;
         bool showHelp = false;
+        bool verbose = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -37,12 +39,16 @@ public static class RecorderArgs
                 if (int.TryParse(args[++i], out var parsedPid))
                     pid = parsedPid;
             }
+            else if (args[i] is "--verbose" or "-v")
+            {
+                verbose = true;
+            }
             else if (args[i] is "--help" or "-h" or "-?")
             {
                 showHelp = true;
             }
         }
 
-        return new RecorderOptions(outputPath, pid, wrappedCommand, showHelp);
+        return new RecorderOptions(outputPath, pid, wrappedCommand, showHelp, verbose);
     }
 }
