@@ -1,14 +1,14 @@
 # How to Record a Generator Log
 
-This guide will help you capture a trace of Roslyn source generator activity during a build. The resulting `.etl` file can be shared for analysis.
+This guide will help you capture a trace of Roslyn source generator activity during a build. The resulting trace file can be shared for analysis.
 
 ## Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) or later installed
-- Windows (ETW tracing is a Windows feature)
-- You will need **Administrator** access on your machine
+- **Windows:** Administrator access (for system-wide ETW tracing)
+- **macOS/Linux:** No special permissions needed (uses EventPipe, per-process)
 
-## Steps
+## Steps (Windows)
 
 ### 1. Open a terminal
 
@@ -22,8 +22,6 @@ Open **Windows Terminal**, **PowerShell**, or **Command Prompt**.
 cd C:\path\to\your\project
 ```
 
-This is the directory where you normally run `dotnet build`. The trace file will be saved here.
-
 ### 3. Start recording
 
 Run:
@@ -35,7 +33,7 @@ dnx generatorlog
 You should see output like:
 
 ```
-Recording generator events to: C:\path\to\your\project\generators.etl
+Recording generator events (ETW, system-wide) to: C:\path\to\your\project\generators.etl
 Press Ctrl+C to stop recording.
 
 Recorded 0 driver run(s), 0 generator execution(s)
@@ -78,23 +76,67 @@ Saved to: C:\path\to\your\project\generators.etl
 
 The file `generators.etl` is in your project directory. Send this file to whoever requested the trace.
 
-> **Note:** If you run the tool multiple times, it will create `generators (1).etl`, `generators (2).etl`, etc. to avoid overwriting previous traces.
+## Steps (macOS / Linux)
+
+On non-Windows platforms, the tool uses EventPipe which traces a **specific process** by PID.
+
+### 1. Start your build in the background
+
+```bash
+dotnet build &
+BUILD_PID=$!
+```
+
+### 2. Record the trace
+
+```bash
+dnx generatorlog --pid $BUILD_PID
+```
+
+The tool will attach to the build process and record events to `generators.nettrace`. Recording stops automatically when the build completes, or you can press **Ctrl+C**.
+
+### 3. For long-running processes (e.g. Visual Studio Code, `dotnet watch`)
+
+Find the process ID first:
+
+```bash
+# Find running dotnet processes
+ps aux | grep dotnet
+```
+
+Then attach:
+
+```bash
+dnx generatorlog --pid <pid>
+```
+
+### 4. Share the trace file
+
+Send the resulting `.nettrace` file to whoever requested the trace.
 
 ## Troubleshooting
 
 | Problem | Solution |
 |---|---|
 | `dnx` is not recognized | Ensure you have .NET 10 SDK or later installed. Run `dotnet --version` to check. |
-| UAC prompt doesn't appear / elevation fails | Right-click your terminal and choose **Run as administrator**, then run the command again. |
+| UAC prompt doesn't appear / elevation fails (Windows) | Right-click your terminal and choose **Run as administrator**, then run the command again. |
 | Counter stays at 0 during build | Make sure you're building a project that uses source generators. Try `dotnet build` in the same directory where the tool is running. |
-| Permission denied errors | Close any other tracing tools (PerfView, Event Viewer) that might be using the same ETW session. |
+| Permission denied errors (Windows) | Close any other tracing tools (PerfView, Event Viewer) that might be using the same ETW session. |
+| "Could not connect to process" (EventPipe) | Ensure the target is a .NET process and is still running when you attach. |
+| "Must specify --pid" (macOS/Linux) | EventPipe tracing requires a target process ID. See the macOS/Linux steps above. |
 
 ## Advanced Options
 
-To save the trace to a specific location:
+Save the trace to a specific location:
 
 ```
-dnx generatorlog --output C:\traces\mybuild.etl
+dnx generatorlog --output ~/traces/mybuild.etl
+```
+
+On Windows, trace a specific process via EventPipe instead of system-wide ETW:
+
+```
+dnx generatorlog --pid 12345
 ```
 
 For full help:

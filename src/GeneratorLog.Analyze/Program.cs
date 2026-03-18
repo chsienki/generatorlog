@@ -14,9 +14,9 @@ for (int i = 0; i < args.Length; i++)
     }
     else if (args[i] is "--help" or "-h" or "-?")
     {
-        Console.WriteLine("Usage: generatorlog-analyze [--csv|-c <path>] <file1.etl> [file2.etl ...]");
+        Console.WriteLine("Usage: generatorlog-analyze [--csv|-c <path>] <file1.etl> [file2.nettrace ...]");
         Console.WriteLine();
-        Console.WriteLine("Analyze Roslyn source generator ETW events from ETL files.");
+        Console.WriteLine("Analyze Roslyn source generator events from ETL or nettrace files.");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --csv, -c <path>  Export results as CSV to the specified file.");
@@ -30,7 +30,7 @@ for (int i = 0; i < args.Length; i++)
 
 if (files.Count == 0)
 {
-    Console.Error.WriteLine("Error: No ETL files specified. Use --help for usage.");
+    Console.Error.WriteLine("Error: No trace files specified. Use --help for usage.");
     return 1;
 }
 

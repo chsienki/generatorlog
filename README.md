@@ -4,28 +4,37 @@ Tools for recording and analyzing Roslyn source generator ETW events.
 
 ## Tools
 
-### `generatorlog` — ETW Event Recorder
+### `generatorlog` — Trace Recorder
 
-Record source generator ETW events from the `Microsoft-CodeAnalysis-General` provider to an ETL file.
+Record source generator events from the `Microsoft-CodeAnalysis-General` provider to a trace file.
+
+**Windows (system-wide via ETW, no PID needed):**
 
 ```
 dnx generatorlog [--output|-o <path>]
 ```
 
-- Requires administrator privileges (auto-elevates on Windows via UAC)
-- Default output: `generators.etl` in the current directory (with collision avoidance)
-- Shows live progress as generator runs are recorded
-- Press `Ctrl+C` to stop recording
-
-### `generatorlog-analyze` — ETL File Analyzer
-
-Analyze ETL files containing Roslyn source generator events and display statistics.
+**macOS / Linux (per-process via EventPipe):**
 
 ```
-dnx generatorlog-analyze [--csv|-c <path>] <file1.etl> [file2.etl ...]
+dnx generatorlog --pid <pid> [--output|-o <path>]
 ```
 
-- Works with ETL files from `generatorlog` or any trace with `Microsoft-CodeAnalysis-General` events
+- On Windows: auto-elevates via UAC for system-wide ETW capture, produces `.etl` files
+- On macOS/Linux: traces a specific process via EventPipe, produces `.nettrace` files
+- On Windows you can also use `--pid` to trace a specific process via EventPipe
+- Default output: `generators.etl` or `generators.nettrace` (with collision avoidance)
+- Shows live progress; press `Ctrl+C` to stop recording
+
+### `generatorlog-analyze` — Trace Analyzer
+
+Analyze trace files containing Roslyn source generator events and display statistics.
+
+```
+dnx generatorlog-analyze [--csv|-c <path>] <file.etl|file.nettrace> [...]
+```
+
+- Works with `.etl` files (from ETW) and `.nettrace` files (from EventPipe)
 - Reports per-process and per-generator statistics: execution counts, min/avg/max timing, cumulative time
 - Optional CSV export with `--csv`
 
@@ -45,12 +54,9 @@ dotnet tool install -g GeneratorLog
 dotnet tool install -g GeneratorLog.Analyze
 ```
 
-## Capturing a trace
+## Customer guide
 
-1. Run `generatorlog` (as administrator)
-2. Build your project with `dotnet build` or in Visual Studio
-3. Press `Ctrl+C` to stop recording
-4. Analyze with `generatorlog-analyze generators.etl`
+See [docs/recording-guide.md](docs/recording-guide.md) for step-by-step instructions to give to customers.
 
 ## License
 
