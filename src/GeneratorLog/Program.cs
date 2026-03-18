@@ -98,14 +98,14 @@ static async Task<int> RunWrapped(string? outputPath, string[] command)
 
     // Enable environment-based EventPipe tracing for the entire process tree
     psi.Environment["DOTNET_EnableEventPipe"] = "1";
-    psi.Environment["DOTNET_EventPipeConfig"] = "Microsoft-CodeAnalysis-General:0xFFFFFFFFFFFFFFFF:5";
+    psi.Environment["DOTNET_EventPipeConfig"] = "Microsoft-CodeAnalysis-General:0xFFFFFFFFFFFFFFFF:5,Microsoft-DotNet-SDK-Razor-SourceGenerator:0xFFFFFFFFFFFFFFFF:4";
     psi.Environment["DOTNET_MSBUILD_DISABLENODEREUSE"] = "1";
     psi.Environment["MSBUILDDISABLENODEREUSE"] = "1";
     psi.Environment["UseSharedCompilation"] = "false";
 
     Log.Debug("Environment variables set on child process:");
     Log.Debug("  DOTNET_EnableEventPipe=1");
-    Log.Debug("  DOTNET_EventPipeConfig=Microsoft-CodeAnalysis-General:0xFFFFFFFFFFFFFFFF:5");
+    Log.Debug("  DOTNET_EventPipeConfig=Microsoft-CodeAnalysis-General:0xFFFFFFFFFFFFFFFF:5,Microsoft-DotNet-SDK-Razor-SourceGenerator:0xFFFFFFFFFFFFFFFF:4");
     Log.Debug("  DOTNET_MSBUILD_DISABLENODEREUSE=1");
     Log.Debug("  MSBUILDDISABLENODEREUSE=1");
     Log.Debug("  UseSharedCompilation=false");
@@ -356,12 +356,14 @@ static async Task<int> RunEtwCore(string? outputPath)
     Log.Debug("Creating real-time ETW session: GeneratorLog-Session");
     using var session = new TraceEventSession("GeneratorLog-Session");
     session.EnableProvider("Microsoft-CodeAnalysis-General", Microsoft.Diagnostics.Tracing.TraceEventLevel.Verbose);
-    Log.Debug("Enabled provider Microsoft-CodeAnalysis-General (Verbose) on real-time session");
+    session.EnableProvider("Microsoft-DotNet-SDK-Razor-SourceGenerator", Microsoft.Diagnostics.Tracing.TraceEventLevel.Informational);
+    Log.Debug("Enabled providers: Microsoft-CodeAnalysis-General (Verbose), Microsoft-DotNet-SDK-Razor-SourceGenerator (Informational)");
 
     Log.Debug($"Creating file ETW session: GeneratorLog-FileSession → {resolvedPath}");
     using var fileSession = new TraceEventSession("GeneratorLog-FileSession", resolvedPath);
     fileSession.EnableProvider("Microsoft-CodeAnalysis-General", Microsoft.Diagnostics.Tracing.TraceEventLevel.Verbose);
-    Log.Debug("Enabled provider Microsoft-CodeAnalysis-General (Verbose) on file session");
+    fileSession.EnableProvider("Microsoft-DotNet-SDK-Razor-SourceGenerator", Microsoft.Diagnostics.Tracing.TraceEventLevel.Informational);
+    Log.Debug("Enabled providers on file session");
 
     Console.CancelKeyPress += (s, e) =>
     {
@@ -428,10 +430,12 @@ static async Task<int> RunEventPipe(string? outputPath, int pid)
         cts.Cancel();
     };
 
-    var provider = new EventPipeProvider(
-        "Microsoft-CodeAnalysis-General",
-        EventLevel.Verbose);
-    Log.Debug("Configured EventPipe provider: Microsoft-CodeAnalysis-General (Verbose)");
+    var providers = new[]
+    {
+        new EventPipeProvider("Microsoft-CodeAnalysis-General", EventLevel.Verbose),
+        new EventPipeProvider("Microsoft-DotNet-SDK-Razor-SourceGenerator", EventLevel.Informational)
+    };
+    Log.Debug("Configured EventPipe providers: Microsoft-CodeAnalysis-General (Verbose), Microsoft-DotNet-SDK-Razor-SourceGenerator (Informational)");
 
     var client = new DiagnosticsClient(pid);
     EventPipeSession? session = null;
@@ -439,7 +443,7 @@ static async Task<int> RunEventPipe(string? outputPath, int pid)
     Log.Debug($"Connecting to diagnostic port for PID {pid}...");
     try
     {
-        session = client.StartEventPipeSession([provider], requestRundown: false);
+        session = client.StartEventPipeSession(providers, requestRundown: false);
         Log.Debug("EventPipe session started successfully");
     }
     catch (ServerNotAvailableException)
@@ -513,7 +517,7 @@ static bool HasCodeAnalysisEvents(string nettraceFile)
         bool found = false;
         using var source = new EventPipeEventSource(nettraceFile);
         source.Dynamic.AddCallbackForProviderEvents(
-            (providerName, _) => providerName == "Microsoft-CodeAnalysis-General"
+            (providerName, _) => providerName is "Microsoft-CodeAnalysis-General" or "Microsoft-DotNet-SDK-Razor-SourceGenerator"
                 ? EventFilterResponse.AcceptEvent
                 : EventFilterResponse.RejectProvider,
             (TraceEvent _) => { found = true; source.StopProcessing(); });

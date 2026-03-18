@@ -56,6 +56,7 @@ static int Run(List<FileInfo> files, FileInfo? csvFile, bool verbose)
     }
 
     var allProcessInfo = new List<ProcessInfo>();
+    int razorEventCount = 0;
 
     foreach (var file in files)
     {
@@ -64,12 +65,16 @@ static int Run(List<FileInfo> files, FileInfo? csvFile, bool verbose)
         LogVerbose(verbose, $"File extension: {file.Extension}");
 
         var processor = new EventProcessor();
+        int fileRazorEvents = 0;
 
-        ProcessTraceFile(file, processor, verbose);
+        ProcessTraceFile(file, processor, verbose, ref fileRazorEvents);
 
         var info = processor.ProcessInfo;
         LogVerbose(verbose, $"Found {info.Count} process(es), {info.Sum(p => p.Generators.Count)} generator(s), {info.Sum(p => p.Generators.Sum(g => g.Executions.Count))} execution(s)");
+        if (fileRazorEvents > 0)
+            LogVerbose(verbose, $"Found {fileRazorEvents} Razor source generator event(s)");
         allProcessInfo.AddRange(info);
+        razorEventCount += fileRazorEvents;
     }
 
     if (allProcessInfo.Count == 0)
@@ -82,6 +87,13 @@ static int Run(List<FileInfo> files, FileInfo? csvFile, bool verbose)
     RenderSummary(allProcessInfo);
     RenderPerProcessTable(allProcessInfo);
     RenderPerGeneratorTable(allProcessInfo);
+
+    if (razorEventCount > 0)
+    {
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine($"[blue]Note:[/] This trace also contains [bold]{razorEventCount}[/] Razor source generator event(s) ([dim]Microsoft-DotNet-SDK-Razor-SourceGenerator[/]).");
+        AnsiConsole.MarkupLine("[dim]These can be analyzed with PerfView or other ETW tools for detailed Razor diagnostics.[/]");
+    }
 
     if (csvFile is not null)
     {
@@ -189,7 +201,7 @@ static void RenderPerGeneratorTable(List<ProcessInfo> processes)
     }
 }
 
-static void ProcessTraceFile(FileInfo file, EventProcessor processor, bool verbose)
+static void ProcessTraceFile(FileInfo file, EventProcessor processor, bool verbose, ref int razorEventCount)
 {
     var extension = file.Extension.ToLowerInvariant();
 
@@ -206,7 +218,7 @@ static void ProcessTraceFile(FileInfo file, EventProcessor processor, bool verbo
             foreach (var entry in entries)
             {
                 AnsiConsole.MarkupLine($"  [dim]Processing entry: {Path.GetFileName(entry)}[/]");
-                ProcessTraceFile(new FileInfo(entry), processor, verbose);
+                ProcessTraceFile(new FileInfo(entry), processor, verbose, ref razorEventCount);
             }
         }
         finally
@@ -218,13 +230,21 @@ static void ProcessTraceFile(FileInfo file, EventProcessor processor, bool verbo
     else if (extension == ".nettrace")
     {
         LogVerbose(verbose, $"Opening as EventPipe nettrace: {file.Name}");
+        int localRazor = 0;
         using var source = new EventPipeEventSource(file.FullName);
         source.Dynamic.AddCallbackForProviderEvents(
-            (providerName, eventName) => providerName == EventProcessor.CodeAnalysisEtwName
+            (providerName, eventName) => providerName is EventProcessor.CodeAnalysisEtwName or "Microsoft-DotNet-SDK-Razor-SourceGenerator"
                 ? EventFilterResponse.AcceptEvent
                 : EventFilterResponse.RejectProvider,
-            processor.ProcessEvent);
+            (TraceEvent e) =>
+            {
+                if (e.ProviderName == EventProcessor.CodeAnalysisEtwName)
+                    processor.ProcessEvent(e);
+                else if (e.ProviderName == "Microsoft-DotNet-SDK-Razor-SourceGenerator")
+                    localRazor++;
+            });
         source.Process();
+        razorEventCount += localRazor;
         LogVerbose(verbose, "EventPipe processing complete");
     }
     else
@@ -232,13 +252,15 @@ static void ProcessTraceFile(FileInfo file, EventProcessor processor, bool verbo
         LogVerbose(verbose, $"Opening as ETL/ETLX via TraceLog.OpenOrConvert: {file.Name}");
         using var traceLog = TraceLog.OpenOrConvert(file.FullName);
         LogVerbose(verbose, $"TraceLog opened: {traceLog.Events.Count()} total events");
+        int localRazor = 0;
         foreach (var e in traceLog.Events)
         {
             if (e.ProviderName == EventProcessor.CodeAnalysisEtwName)
-            {
                 processor.ProcessEvent(e);
-            }
+            else if (e.ProviderName == "Microsoft-DotNet-SDK-Razor-SourceGenerator")
+                localRazor++;
         }
+        razorEventCount += localRazor;
         LogVerbose(verbose, "ETL processing complete");
     }
 }
