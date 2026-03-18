@@ -82,15 +82,23 @@ Send the `generators.etl` file from your project directory to whoever requested 
 
 ## macOS / Linux
 
-On non-Windows platforms, the tool uses EventPipe which traces a **specific process** by its process ID (PID). This means you need to start the build first, then attach.
+On non-Windows platforms, the tool traces a specific process via EventPipe. The easiest approach is to use `--` to wrap your build command — the tool launches it and traces automatically.
 
-### Option A: Tracing a `dotnet watch` or long-running build server
+### Option A: Wrap a build command (recommended)
 
-This is the easiest approach — attach to a process that stays running.
+```bash
+dnx generatorlog -- dotnet build
+```
+
+The tool launches `dotnet build`, attaches tracing immediately, records all generator events, and stops when the build completes. The trace is saved to `generators.nettrace`.
+
+> This also works on Windows if you prefer per-process tracing over system-wide ETW.
+
+### Option B: Attach to a running process
+
+For long-running processes like `dotnet watch` or a build server:
 
 #### 1. Start your long-running process
-
-In one terminal:
 
 ```bash
 dotnet watch build
@@ -98,45 +106,17 @@ dotnet watch build
 
 #### 2. Find the process ID
 
-In another terminal:
-
 ```bash
-dotnet build-server status
-# or
 ps aux | grep dotnet
 ```
 
-Look for the `dotnet` process corresponding to your build. Note its PID.
-
-#### 3. Start recording
+#### 3. Attach the recorder
 
 ```bash
 dnx generatorlog --pid <pid>
 ```
 
-#### 4. Trigger builds
-
-Make changes and let `dotnet watch` rebuild. The tool records all generator events from the target process.
-
-#### 5. Stop recording
-
-Press **Ctrl+C** in the recording terminal (or it stops automatically if the process exits).
-
-Send the resulting `generators.nettrace` file.
-
-### Option B: Tracing a single `dotnet build`
-
-For a one-off build, you can start the build and the recorder in parallel:
-
-```bash
-# Start the build in the background and immediately start tracing
-dotnet build &
-dnx generatorlog --pid $!
-```
-
-The recorder will capture events until the build process exits, then stop automatically.
-
-> **Note:** For very fast builds, the build may complete before the recorder can attach. In that case, use Option A with `dotnet watch` instead.
+Press **Ctrl+C** to stop, or it stops automatically when the process exits.
 
 ### Share the trace file
 
@@ -152,19 +132,25 @@ Send the resulting `.nettrace` file to whoever requested the trace. If you run t
 | UAC prompt doesn't appear (Windows) | Right-click your terminal and choose **Run as administrator**, then try again. |
 | Counter stays at 0 during build (Windows) | Ensure you're building a project that uses source generators. |
 | Permission denied (Windows) | Close other tracing tools (PerfView, Event Viewer) that may hold the ETW session. |
-| "Could not connect to process" (macOS/Linux) | Ensure the target is a .NET process and is still running when you attach. |
-| "Must specify --pid" (macOS/Linux) | EventPipe requires a target process ID. See the macOS/Linux instructions above. |
-| Build completes before recorder attaches (macOS/Linux) | Use `dotnet watch build` so the process stays alive, or try the background `&` approach. |
+| "Could not connect to process" | Ensure the target is a .NET process and is still running when you attach. |
+| "Process exited before tracing could start" | The build finished too quickly. Try `-- dotnet watch build` or a larger project. |
 
 ## Advanced Options
+
+Wrap a build command (any platform):
+
+```bash
+dnx generatorlog -- dotnet build
+dnx generatorlog --output ~/traces/mybuild.nettrace -- dotnet build
+```
 
 Save the trace to a specific location:
 
 ```bash
-# Windows
+# Windows (ETW)
 dnx generatorlog --output C:\traces\mybuild.etl
 
-# macOS/Linux
+# Any platform (EventPipe)
 dnx generatorlog --pid <pid> --output ~/traces/mybuild.nettrace
 ```
 

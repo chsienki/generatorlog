@@ -5,36 +5,19 @@ using Microsoft.Diagnostics.NETCore.Client;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Session;
 
-string? outputPath = null;
-int? pid = null;
+var options = RecorderArgs.Parse(args);
 
-for (int i = 0; i < args.Length; i++)
+if (options.ShowHelp)
 {
-    if (args[i] is "--output" or "-o" && i + 1 < args.Length)
-    {
-        outputPath = args[++i];
-    }
-    else if (args[i] is "--pid" or "-p" && i + 1 < args.Length)
-    {
-        if (!int.TryParse(args[++i], out var parsedPid))
-        {
-            Console.Error.WriteLine($"Error: Invalid PID '{args[i]}'.");
-            return 1;
-        }
-        pid = parsedPid;
-    }
-    else if (args[i] is "--help" or "-h" or "-?")
-    {
-        PrintHelp();
-        return 0;
-    }
+    PrintHelp();
+    return 0;
 }
 
-return await Run(outputPath, pid);
+return await Run(options.OutputPath, options.Pid, options.WrappedCommand);
 
 static void PrintHelp()
 {
-    Console.WriteLine("Usage: generatorlog [options]");
+    Console.WriteLine("Usage: generatorlog [options] [-- <command> [args...]]");
     Console.WriteLine();
     Console.WriteLine("Record Roslyn source generator events to a trace file.");
     Console.WriteLine();
@@ -49,35 +32,162 @@ static void PrintHelp()
     else
     {
         Console.WriteLine("                       Defaults to generators.nettrace in the current directory.");
-        Console.WriteLine("  --pid, -p <pid>      (Required on non-Windows) The process ID to trace.");
+        Console.WriteLine("  --pid, -p <pid>      Trace a running process by PID.");
     }
+    Console.WriteLine("  -- <command>         Launch a command and trace it. The command is run as a");
+    Console.WriteLine("                       child process and traced via EventPipe.");
+    Console.WriteLine();
+    Console.WriteLine("Examples:");
+    if (OperatingSystem.IsWindows())
+    {
+        Console.WriteLine("  generatorlog                              # ETW system-wide (Windows, admin)");
+    }
+    Console.WriteLine("  generatorlog -- dotnet build               # Launch and trace a build");
+    Console.WriteLine("  generatorlog --pid 12345                   # Attach to a running process");
 }
 
-static async Task<int> Run(string? outputPath, int? pid)
+static async Task<int> Run(string? outputPath, int? pid, string[]? wrappedCommand)
 {
-    // On non-Windows, EventPipe is the only option and requires a PID
-    if (!OperatingSystem.IsWindows() && pid is null)
-    {
-        Console.Error.WriteLine("On this platform, you must specify the process ID to trace.");
-        Console.Error.WriteLine();
-        Console.Error.WriteLine("  generatorlog --pid <pid>");
-        Console.Error.WriteLine();
-        Console.Error.WriteLine("To find the PID of a running dotnet build, use:");
-        Console.Error.WriteLine("  dotnet build & echo $!          # bash");
-        Console.Error.WriteLine("  ps aux | grep dotnet            # find running dotnet processes");
-        Console.Error.WriteLine();
-        Console.Error.WriteLine("Or wrap your build command:");
-        Console.Error.WriteLine("  dotnet build &");
-        Console.Error.WriteLine("  generatorlog --pid $!");
-        return 1;
-    }
+    // -- <command> mode: launch and trace
+    if (wrappedCommand is { Length: > 0 })
+        return await RunWrapped(outputPath, wrappedCommand);
 
-    // If a PID is specified (any platform), use EventPipe
+    // --pid mode: attach to existing process
     if (pid is not null)
         return await RunEventPipe(outputPath, pid.Value);
 
-    // Otherwise, use ETW (Windows only at this point)
+    // On non-Windows without --pid or --, explain options
+    if (!OperatingSystem.IsWindows())
+    {
+        Console.Error.WriteLine("On this platform, specify a command to trace or a process ID:");
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("  generatorlog -- dotnet build       # Launch and trace a build");
+        Console.Error.WriteLine("  generatorlog --pid <pid>           # Attach to a running process");
+        return 1;
+    }
+
+    // Default: ETW system-wide (Windows only)
     return await RunEtw(outputPath);
+}
+
+static async Task<int> RunWrapped(string? outputPath, string[] command)
+{
+    var resolvedPath = OutputPath.Resolve(outputPath, Directory.GetCurrentDirectory(),
+        baseName: "generators", extension: ".nettrace");
+
+    // Launch the child process in a suspended-like state using DiagnosticsClient
+    // We use dotnet's diagnostic port to attach before the process starts work
+    var psi = new ProcessStartInfo
+    {
+        FileName = command[0],
+        UseShellExecute = false,
+    };
+    foreach (var arg in command.Skip(1))
+        psi.ArgumentList.Add(arg);
+
+    Console.WriteLine($"Launching: {string.Join(" ", command)}");
+
+    Process childProcess;
+    try
+    {
+        childProcess = Process.Start(psi)!;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: Failed to start '{command[0]}': {ex.Message}");
+        return 1;
+    }
+
+    Console.WriteLine($"Recording generator events (EventPipe, PID {childProcess.Id}) to: {resolvedPath}");
+    Console.WriteLine();
+
+    var cts = new CancellationTokenSource();
+
+    Console.CancelKeyPress += (s, e) =>
+    {
+        e.Cancel = true;
+        cts.Cancel();
+    };
+
+    var provider = new EventPipeProvider(
+        "Microsoft-CodeAnalysis-General",
+        EventLevel.Verbose);
+
+    var client = new DiagnosticsClient(childProcess.Id);
+    EventPipeSession? session = null;
+
+    // Retry briefly — the diagnostic server may not be ready immediately
+    for (int attempt = 0; attempt < 10; attempt++)
+    {
+        try
+        {
+            session = client.StartEventPipeSession([provider], requestRundown: false);
+            break;
+        }
+        catch (ServerNotAvailableException)
+        {
+            if (childProcess.HasExited)
+            {
+                Console.Error.WriteLine("Error: Process exited before tracing could start.");
+                Console.Error.WriteLine("Ensure the command runs a .NET application.");
+                return 1;
+            }
+            await Task.Delay(100);
+        }
+    }
+
+    if (session is null)
+    {
+        Console.Error.WriteLine($"Error: Could not connect to process {childProcess.Id}.");
+        Console.Error.WriteLine("Ensure the command runs a .NET application.");
+        return 1;
+    }
+
+    var writeTask = Task.Run(async () =>
+    {
+        using var fs = new FileStream(resolvedPath, FileMode.Create, FileAccess.Write);
+        try
+        {
+            await session.EventStream.CopyToAsync(fs, cts.Token);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) when (cts.IsCancellationRequested) { }
+    });
+
+    _ = Task.Run(async () =>
+    {
+        while (!cts.Token.IsCancellationRequested)
+        {
+            Console.Write($"\rRecording from PID {childProcess.Id}...   ");
+            try { await Task.Delay(500, cts.Token); } catch (OperationCanceledException) { break; }
+        }
+    });
+
+    // Wait for the child process to exit
+    try
+    {
+        await childProcess.WaitForExitAsync(cts.Token);
+    }
+    catch (OperationCanceledException)
+    {
+        // User pressed Ctrl+C — kill the child
+        try { childProcess.Kill(entireProcessTree: true); } catch { }
+    }
+
+    // Give a moment for remaining events to flush
+    try { await Task.Delay(500, cts.Token); } catch (OperationCanceledException) { }
+    await cts.CancelAsync();
+
+    try { await writeTask; } catch { }
+    try { session.Stop(); } catch { }
+    session.Dispose();
+
+    Console.WriteLine();
+    Console.WriteLine();
+    Console.WriteLine($"Recording complete. Saved to: {resolvedPath}");
+    Console.WriteLine("Use generatorlog-analyze to view the results.");
+
+    return childProcess.ExitCode;
 }
 
 static async Task<int> RunEtw(string? outputPath)

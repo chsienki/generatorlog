@@ -1,6 +1,6 @@
 # GeneratorLog
 
-Tools for recording and analyzing Roslyn source generator ETW events.
+Tools for recording and analyzing Roslyn source generator events.
 
 ## Tools
 
@@ -8,22 +8,28 @@ Tools for recording and analyzing Roslyn source generator ETW events.
 
 Record source generator events from the `Microsoft-CodeAnalysis-General` provider to a trace file.
 
+**Wrap a build command (any platform):**
+
+```
+dnx generatorlog -- dotnet build
+```
+
 **Windows (system-wide via ETW, no PID needed):**
 
 ```
 dnx generatorlog [--output|-o <path>]
 ```
 
-**macOS / Linux (per-process via EventPipe):**
+**Attach to a running process (any platform):**
 
 ```
 dnx generatorlog --pid <pid> [--output|-o <path>]
 ```
 
-- On Windows: auto-elevates via UAC for system-wide ETW capture, produces `.etl` files
-- On macOS/Linux: traces a specific process via EventPipe, produces `.nettrace` files
-- On Windows you can also use `--pid` to trace a specific process via EventPipe
-- Default output: `generators.etl` or `generators.nettrace` (with collision avoidance)
+- `-- <command>`: Launches the command and traces it via EventPipe. Works on all platforms.
+- No arguments (Windows only): system-wide ETW capture, auto-elevates via UAC, produces `.etl` files
+- `--pid`: attaches to a running process via EventPipe, produces `.nettrace` files
+- Default output: `generators.etl` (ETW) or `generators.nettrace` (EventPipe) with collision avoidance
 - Shows live progress; press `Ctrl+C` to stop recording
 
 ### `generatorlog-analyze` — Trace Analyzer
@@ -43,8 +49,8 @@ dnx generatorlog-analyze [--csv|-c <path>] <file.etl|file.nettrace> [...]
 ### One-shot via dnx (.NET 10+)
 
 ```
-dnx generatorlog
-dnx generatorlog-analyze trace.etl
+dnx generatorlog -- dotnet build
+dnx generatorlog-analyze generators.nettrace
 ```
 
 ### As global tools
