@@ -118,29 +118,33 @@ The event processing logic was adapted from:
 
 ## Publishing a New Version
 
-When asked to publish or release a new version, follow these steps in order:
+When asked to publish or release a new version, **start by asking the user for their NuGet API key** using the ask_user tool. Store it for use in step 5. Then follow these steps in order:
 
-### 1. Bump the version
+### 1. Ask for the NuGet API key
+
+Before doing any work, ask the user for their NuGet API key. You will need it in step 5.
+
+### 2. Bump the version
 
 Edit `Directory.Build.props` and update the `<Version>` element. Use [SemVer](https://semver.org/):
 - Pre-release: `0.0.X-alpha` (current phase)
 - First stable: `1.0.0`
 
-### 2. Update version references in docs
+### 3. Update version references in docs
 
-All `dnx` commands in `README.md` and `docs/recording-guide.md` include `@version` (required for pre-release). Update them:
+All `dnx` commands in `README.md`, `docs/recording-guide.md`, and `.github/copilot-instructions.md` include `@version` (required for pre-release). Update them:
 
 ```powershell
 $old = '0.0.4-alpha'  # previous version
 $new = '0.0.5-alpha'  # new version
-foreach ($f in @('README.md', 'docs\recording-guide.md')) {
+foreach ($f in @('README.md', 'docs\recording-guide.md', '.github\copilot-instructions.md')) {
     (Get-Content $f -Raw) -replace [regex]::Escape($old), $new | Set-Content $f -NoNewline
 }
 ```
 
-Also update the `dotnet tool install --version` commands in `README.md`.
+Also update the `dotnet tool install --version` commands in `README.md`, and the example versions in this publishing skill section.
 
-### 3. Run tests
+### 4. Run tests
 
 ```powershell
 dotnet test
@@ -148,7 +152,7 @@ dotnet test
 
 All tests must pass before publishing.
 
-### 4. Commit the version bump
+### 5. Commit the version bump
 
 ```
 git add -A
@@ -156,15 +160,17 @@ git commit -m "Bump version to X.Y.Z-alpha"
 git push
 ```
 
-### 5. Publish to NuGet
+### 6. Publish to NuGet
+
+Use the NuGet API key obtained in step 1:
 
 ```powershell
-.\publish.ps1 -NuGetKey "key"
+.\publish.ps1 -NuGetKey "key-from-step-1" -SkipTests
 ```
 
 This script will:
 1. Clean and build in Release
-2. Run tests (use `-SkipTests` if already verified)
+2. Run tests (skipped since already verified in step 4)
 3. Pack both tools to `artifacts/packages/`
 4. Push to nuget.org
 
@@ -186,11 +192,13 @@ generatorlog-analyze --help
 
 ### Checklist
 
+- [ ] NuGet API key obtained from user
 - [ ] Version bumped in `Directory.Build.props`
 - [ ] Version updated in all `dnx` commands in README.md
 - [ ] Version updated in all `dnx` commands in docs/recording-guide.md
+- [ ] Version updated in .github/copilot-instructions.md (example versions)
 - [ ] Version updated in `dotnet tool install` commands in README.md
 - [ ] Tests pass
 - [ ] Changes committed and pushed
-- [ ] `publish.ps1` run successfully
+- [ ] `publish.ps1` run successfully with NuGet key
 - [ ] Packages verified with `dotnet tool install`
