@@ -47,11 +47,13 @@ public class EventProcessor
         switch (e.EventName)
         {
             case "GeneratorDriverRunTime/Start":
+            case "StartGeneratorDriverRunTime/Start":
                 EnsureProcessSlot(e.ProcessId, e.ProcessName);
                 _currentRunId[(e.ProcessId, e.ThreadId)] = _executionIds[e.ProcessId]++;
                 break;
 
             case "GeneratorDriverRunTime/Stop":
+            case "StopGeneratorDriverRunTime/Stop":
                 if (_processInfo.ContainsKey(e.ProcessId))
                 {
                     _processInfo[e.ProcessId] = _processInfo[e.ProcessId] with
@@ -62,14 +64,17 @@ public class EventProcessor
                 break;
 
             case "SingleGeneratorRunTime/Start":
+            case "StartSingleGeneratorRunTime/Start":
                 _currentExecutions[(e.ProcessId, e.ThreadId)] = [GenerateStartPlaceholder(e)];
                 break;
 
             case "SingleGeneratorRunTime/Stop":
+            case "StopSingleGeneratorRunTime/Stop":
                 RecordGeneratorExecution(e);
                 break;
 
             case "BuildStateTable":
+            case "NodeTransform":
                 RecordStateTable(e);
                 break;
         }

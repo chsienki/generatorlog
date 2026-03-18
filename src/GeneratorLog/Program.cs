@@ -75,8 +75,18 @@ static async Task<int> RunWrapped(string? outputPath, string[] command)
     var resolvedPath = OutputPath.Resolve(outputPath, Directory.GetCurrentDirectory(),
         baseName: "generators", extension: ".nettrace");
 
-    // Launch the child process in a suspended-like state using DiagnosticsClient
-    // We use dotnet's diagnostic port to attach before the process starts work
+    var cts = new CancellationTokenSource();
+
+    Console.CancelKeyPress += (s, e) =>
+    {
+        e.Cancel = true;
+        cts.Cancel();
+    };
+
+    // Use environment-based EventPipe configuration so ALL .NET processes
+    // in the process tree (including MSBuild workers where generators run)
+    // emit events. We configure the output to a specific file and set the
+    // provider to Microsoft-CodeAnalysis-General.
     var psi = new ProcessStartInfo
     {
         FileName = command[0],
@@ -85,7 +95,23 @@ static async Task<int> RunWrapped(string? outputPath, string[] command)
     foreach (var arg in command.Skip(1))
         psi.ArgumentList.Add(arg);
 
+    // Enable environment-based EventPipe tracing for the entire process tree
+    psi.Environment["DOTNET_EnableEventPipe"] = "1";
+    psi.Environment["DOTNET_EventPipeConfig"] = "Microsoft-CodeAnalysis-General:0xFFFFFFFFFFFFFFFF:5";
+    // Disable MSBuild node reuse and the compiler server so all work happens
+    // in fresh child processes that inherit our EventPipe env vars
+    psi.Environment["DOTNET_MSBUILD_DISABLENODEREUSE"] = "1";
+    psi.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+    psi.Environment["UseSharedCompilation"] = "false";
+    // Don't set DOTNET_EventPipeOutputPath — let each process write its own
+    // trace file named {processName}.{pid}.nettrace in its working directory.
+    // We'll collect them after the build completes.
+
     Console.WriteLine($"Launching: {string.Join(" ", command)}");
+    Console.WriteLine($"Recording generator events to: {resolvedPath}");
+    Console.WriteLine();
+
+    var startTime = DateTime.Now;
 
     Process childProcess;
     try
@@ -98,62 +124,6 @@ static async Task<int> RunWrapped(string? outputPath, string[] command)
         return 1;
     }
 
-    Console.WriteLine($"Recording generator events (EventPipe, PID {childProcess.Id}) to: {resolvedPath}");
-    Console.WriteLine();
-
-    var cts = new CancellationTokenSource();
-
-    Console.CancelKeyPress += (s, e) =>
-    {
-        e.Cancel = true;
-        cts.Cancel();
-    };
-
-    var provider = new EventPipeProvider(
-        "Microsoft-CodeAnalysis-General",
-        EventLevel.Verbose);
-
-    var client = new DiagnosticsClient(childProcess.Id);
-    EventPipeSession? session = null;
-
-    // Retry briefly — the diagnostic server may not be ready immediately
-    for (int attempt = 0; attempt < 10; attempt++)
-    {
-        try
-        {
-            session = client.StartEventPipeSession([provider], requestRundown: false);
-            break;
-        }
-        catch (ServerNotAvailableException)
-        {
-            if (childProcess.HasExited)
-            {
-                Console.Error.WriteLine("Error: Process exited before tracing could start.");
-                Console.Error.WriteLine("Ensure the command runs a .NET application.");
-                return 1;
-            }
-            await Task.Delay(100);
-        }
-    }
-
-    if (session is null)
-    {
-        Console.Error.WriteLine($"Error: Could not connect to process {childProcess.Id}.");
-        Console.Error.WriteLine("Ensure the command runs a .NET application.");
-        return 1;
-    }
-
-    var writeTask = Task.Run(async () =>
-    {
-        using var fs = new FileStream(resolvedPath, FileMode.Create, FileAccess.Write);
-        try
-        {
-            await session.EventStream.CopyToAsync(fs, cts.Token);
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception) when (cts.IsCancellationRequested) { }
-    });
-
     _ = Task.Run(async () =>
     {
         while (!cts.Token.IsCancellationRequested)
@@ -163,30 +133,73 @@ static async Task<int> RunWrapped(string? outputPath, string[] command)
         }
     });
 
-    // Wait for the child process to exit
     try
     {
         await childProcess.WaitForExitAsync(cts.Token);
     }
     catch (OperationCanceledException)
     {
-        // User pressed Ctrl+C — kill the child
         try { childProcess.Kill(entireProcessTree: true); } catch { }
     }
 
-    // Give a moment for remaining events to flush
-    try { await Task.Delay(500, cts.Token); } catch (OperationCanceledException) { }
     await cts.CancelAsync();
 
-    try { await writeTask; } catch { }
-    try { session.Stop(); } catch { }
-    session.Dispose();
+    // EventPipe environment-based tracing writes a trace file per process.
+    // The default name is trace.nettrace in each process's working directory.
+    // Scan likely locations for these files.
+    var searchDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        Directory.GetCurrentDirectory(),
+        Path.GetDirectoryName(resolvedPath)!
+    };
+    // Add the directory of the command target if it looks like a path
+    foreach (var arg in command.Skip(1))
+    {
+        if (Directory.Exists(arg))
+            searchDirs.Add(Path.GetFullPath(arg));
+        else if (File.Exists(arg))
+            searchDirs.Add(Path.GetDirectoryName(Path.GetFullPath(arg))!);
+    }
+
+    var cutoff = startTime;
+    var traceFiles = searchDirs
+        .Where(Directory.Exists)
+        .SelectMany(dir =>
+        {
+            try { return Directory.GetFiles(dir, "*.nettrace", SearchOption.TopDirectoryOnly); }
+            catch { return []; }
+        })
+        .Where(f => new FileInfo(f).LastWriteTime >= cutoff && new FileInfo(f).Length > 1024)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderByDescending(f => new FileInfo(f).Length)
+        .ToArray();
 
     Console.WriteLine();
     Console.WriteLine();
-    Console.WriteLine($"Recording complete. Saved to: {resolvedPath}");
+
+    if (traceFiles.Length == 0)
+    {
+        Console.WriteLine("Recording complete. No trace files with generator events were found.");
+        Console.WriteLine("The build may not have used any source generators.");
+    }
+    else
+    {
+        // The largest file is most likely the MSBuild worker with generator events
+        var primaryTrace = traceFiles[0];
+        if (!string.Equals(primaryTrace, resolvedPath, StringComparison.OrdinalIgnoreCase))
+        {
+            File.Move(primaryTrace, resolvedPath, overwrite: true);
+        }
+        Console.WriteLine($"Recording complete. Saved to: {resolvedPath}");
+
+        // Clean up other trace files (rundown from the dotnet CLI process etc.)
+        foreach (var f in traceFiles.Skip(1))
+        {
+            try { File.Delete(f); } catch { }
+        }
+    }
+
     Console.WriteLine("Use generatorlog-analyze to view the results.");
-
     return childProcess.ExitCode;
 }
 
