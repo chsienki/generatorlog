@@ -8,7 +8,8 @@ public record RecorderOptions(
     int? Pid,
     string[]? WrappedCommand,
     bool ShowHelp,
-    bool Verbose);
+    bool Verbose,
+    bool IsElevated);
 
 /// <summary>
 /// Parses command-line arguments for the generatorlog recorder.
@@ -22,6 +23,7 @@ public static class RecorderArgs
         string[]? wrappedCommand = null;
         bool showHelp = false;
         bool verbose = false;
+        bool isElevated = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -43,12 +45,16 @@ public static class RecorderArgs
             {
                 verbose = true;
             }
+            else if (args[i] is "--elevated")
+            {
+                isElevated = true;
+            }
             else if (args[i] is "--help" or "-h" or "-?")
             {
                 showHelp = true;
             }
         }
 
-        return new RecorderOptions(outputPath, pid, wrappedCommand, showHelp, verbose);
+        return new RecorderOptions(outputPath, pid, wrappedCommand, showHelp, verbose, isElevated);
     }
 }

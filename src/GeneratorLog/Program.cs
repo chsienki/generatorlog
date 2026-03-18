@@ -16,7 +16,7 @@ if (options.ShowHelp)
 }
 
 Log.Debug($"Parsed options: Output={options.OutputPath}, PID={options.Pid}, Wrapped={options.WrappedCommand is not null}, Verbose={options.Verbose}");
-return await Run(options.OutputPath, options.Pid, options.WrappedCommand);
+return await Run(options.OutputPath, options.Pid, options.WrappedCommand, options.IsElevated);
 
 static void PrintHelp()
 {
@@ -50,7 +50,7 @@ static void PrintHelp()
     Console.WriteLine("  generatorlog --pid 12345                   # Attach to a running process");
 }
 
-static async Task<int> Run(string? outputPath, int? pid, string[]? wrappedCommand)
+static async Task<int> Run(string? outputPath, int? pid, string[]? wrappedCommand, bool isElevated)
 {
     // -- <command> mode: launch and trace
     if (wrappedCommand is { Length: > 0 })
@@ -71,7 +71,7 @@ static async Task<int> Run(string? outputPath, int? pid, string[]? wrappedComman
     }
 
     // Default: ETW system-wide (Windows only)
-    return await RunEtw(outputPath);
+    return await RunEtw(outputPath, isElevated);
 }
 
 static async Task<int> RunWrapped(string? outputPath, string[] command)
@@ -268,7 +268,7 @@ static async Task<int> RunWrapped(string? outputPath, string[] command)
     return childProcess.ExitCode;
 }
 
-static async Task<int> RunEtw(string? outputPath)
+static async Task<int> RunEtw(string? outputPath, bool isElevated)
 {
     // Check for admin elevation
     if (!(TraceEventSession.IsElevated() ?? false))
@@ -280,12 +280,23 @@ static async Task<int> RunEtw(string? outputPath)
             Console.Error.WriteLine("Attempting to re-launch as administrator...");
             try
             {
+                // Reconstruct the full command line for the elevated process.
+                // When running as a dotnet tool, ProcessPath is the tool exe.
                 var exe = Environment.ProcessPath!;
-                var arguments = string.Join(" ", Environment.GetCommandLineArgs().Skip(1));
+                var cmdLineArgs = Environment.GetCommandLineArgs();
+
+                // If invoked via `dotnet exec`, the first arg is the DLL path.
+                // If invoked directly (tool shim), args start with our flags.
+                // Use the raw args from the original invocation.
+                var arguments = string.Join(" ", cmdLineArgs.Skip(1));
+
+                Log.Debug($"Elevation: exe={exe}");
+                Log.Debug($"Elevation: arguments={arguments}");
+
                 var psi = new ProcessStartInfo
                 {
                     FileName = exe,
-                    Arguments = arguments,
+                    Arguments = $"--elevated {arguments}",
                     UseShellExecute = true,
                     Verb = "runas"
                 };
@@ -299,6 +310,7 @@ static async Task<int> RunEtw(string? outputPath)
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"Failed to elevate: {ex.Message}");
+                Log.Debug($"Elevation exception: {ex}");
             }
         }
 
@@ -306,6 +318,31 @@ static async Task<int> RunEtw(string? outputPath)
         return 1;
     }
 
+    // If we're running in an elevated child window, wrap everything in try/catch
+    // so the user can see any errors before the window closes.
+    if (isElevated)
+    {
+        try
+        {
+            return await RunEtwCore(outputPath);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine();
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            Log.Debug(ex.ToString());
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("Press Enter to close this window...");
+            Console.ReadLine();
+            return 1;
+        }
+    }
+
+    return await RunEtwCore(outputPath);
+}
+
+static async Task<int> RunEtwCore(string? outputPath)
+{
     var resolvedPath = OutputPath.Resolve(outputPath, Directory.GetCurrentDirectory());
     Log.Debug($"Output path resolved to: {resolvedPath}");
     Console.WriteLine($"Recording generator events (ETW, system-wide) to: {resolvedPath}");
