@@ -15,14 +15,14 @@ This guide will help you capture a trace of Roslyn source generator activity dur
 The simplest way to capture a trace on any platform:
 
 ```
-dnx generatorlog@0.0.6-alpha -- dotnet build
+dnx generatorlog@0.0.7-alpha -- dotnet build
 ```
 
 This launches `dotnet build`, traces all generator events from every process in the build, and saves the result to `generators.nettrace` when the build completes.
 
 > **Tip:** If something isn't working as expected, add `--verbose` to see exactly what the tool is doing:
 > ```
-> dnx generatorlog@0.0.6-alpha --verbose -- dotnet build
+> dnx generatorlog@0.0.7-alpha --verbose -- dotnet build
 > ```
 
 ---
@@ -46,7 +46,7 @@ cd C:\path\to\your\project
 ### 3. Start recording
 
 ```
-dnx generatorlog@0.0.6-alpha
+dnx generatorlog@0.0.7-alpha
 ```
 
 You should see:
@@ -104,7 +104,7 @@ On non-Windows platforms, the tool traces via EventPipe. The recommended approac
 ### Option A: Wrap a build command (recommended)
 
 ```bash
-dnx generatorlog@0.0.6-alpha -- dotnet build
+dnx generatorlog@0.0.7-alpha -- dotnet build
 ```
 
 The tool:
@@ -135,7 +135,7 @@ ps aux | grep dotnet
 #### 3. Attach the recorder
 
 ```bash
-dnx generatorlog@0.0.6-alpha --pid <pid>
+dnx generatorlog@0.0.7-alpha --pid <pid>
 ```
 
 Press **Ctrl+C** to stop, or it stops automatically when the process exits.
@@ -151,7 +151,7 @@ On macOS / Linux, find and attach to it:
 ps aux | grep Microsoft.CodeAnalysis.LanguageServer
 
 # Attach to it
-dnx generatorlog@0.0.6-alpha --pid <pid>
+dnx generatorlog@0.0.7-alpha --pid <pid>
 ```
 
 ### Share the trace file
@@ -190,20 +190,20 @@ Options:
 Save the trace to a specific location:
 
 ```bash
-dnx generatorlog@0.0.6-alpha --output ~/traces/mybuild.nettrace -- dotnet build
+dnx generatorlog@0.0.7-alpha --output ~/traces/mybuild.nettrace -- dotnet build
 
 # Windows (ETW)
-dnx generatorlog@0.0.6-alpha --output C:\traces\mybuild.etl
+dnx generatorlog@0.0.7-alpha --output C:\traces\mybuild.etl
 ```
 
 On Windows, trace a specific process via EventPipe instead of system-wide ETW:
 
 ```
-dnx generatorlog@0.0.6-alpha --pid 12345
+dnx generatorlog@0.0.7-alpha --pid 12345
 ```
 
 For full help:
 
 ```
-dnx generatorlog@0.0.6-alpha --help
+dnx generatorlog@0.0.7-alpha --help
 ```
