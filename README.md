@@ -53,7 +53,7 @@ dnx generatorlog.analyze@0.0.6-alpha [options] <file.etl|file.nettrace|file.zip>
 | `--csv, -c <path>` | Export results as CSV. |
 | `--verbose, -v` | Show detailed diagnostic output. |
 
-**Supported formats:** `.etl` (ETW), `.nettrace` (EventPipe), `.nettrace.zip` (bundled traces from `-- <command>` mode).
+**Supported formats:** `.etl` (ETW), `.etlx`, `.nettrace` (EventPipe), `.nettrace.zip` (bundled traces), `.etl.zip` (compressed ETL — streamed from zip without full extraction into memory).
 
 **Output includes:**
 - Summary: total driver runs, generator executions, unique generators, process count

@@ -23,7 +23,9 @@ for (int i = 0; i < args.Length; i++)
     {
         Console.WriteLine("Usage: generatorlog-analyze [options] <file1.etl> [file2.nettrace ...]");
         Console.WriteLine();
-        Console.WriteLine("Analyze Roslyn source generator events from ETL, nettrace, or zip files.");
+        Console.WriteLine("Analyze Roslyn source generator events from trace files.");
+        Console.WriteLine();
+        Console.WriteLine("Supported formats: .etl, .etlx, .nettrace, .nettrace.zip, .etl.zip");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --csv, -c <path>   Export results as CSV to the specified file.");
@@ -203,66 +205,130 @@ static void RenderPerGeneratorTable(List<ProcessInfo> processes)
 
 static void ProcessTraceFile(FileInfo file, EventProcessor processor, bool verbose, ref int razorEventCount)
 {
-    var extension = file.Extension.ToLowerInvariant();
+    var fullName = file.FullName.ToLowerInvariant();
 
-    if (extension == ".zip")
+    // Handle .etl.zip — a zipped ETL file (can be very large)
+    if (fullName.EndsWith(".etl.zip"))
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"generatorlog-{Guid.NewGuid():N}");
-        LogVerbose(verbose, $"Extracting zip to temp: {tempDir}");
-        Directory.CreateDirectory(tempDir);
-        try
-        {
-            ZipFile.ExtractToDirectory(file.FullName, tempDir);
-            var entries = Directory.GetFiles(tempDir, "*.nettrace");
-            LogVerbose(verbose, $"Zip contains {entries.Length} .nettrace file(s)");
-            foreach (var entry in entries)
-            {
-                AnsiConsole.MarkupLine($"  [dim]Processing entry: {Path.GetFileName(entry)}[/]");
-                ProcessTraceFile(new FileInfo(entry), processor, verbose, ref razorEventCount);
-            }
-        }
-        finally
-        {
-            LogVerbose(verbose, $"Cleaning up temp: {tempDir}");
-            try { Directory.Delete(tempDir, recursive: true); } catch { }
-        }
+        LogVerbose(verbose, $"Opening as zipped ETL: {file.Name}");
+        ProcessZippedEtl(file, processor, verbose, ref razorEventCount);
     }
-    else if (extension == ".nettrace")
+    // Handle .nettrace.zip — bundled nettrace files from -- command mode
+    else if (file.Extension.Equals(".zip", StringComparison.OrdinalIgnoreCase))
+    {
+        LogVerbose(verbose, $"Opening as nettrace zip bundle: {file.Name}");
+        ProcessNettraceZip(file, processor, verbose, ref razorEventCount);
+    }
+    else if (file.Extension.Equals(".nettrace", StringComparison.OrdinalIgnoreCase))
     {
         LogVerbose(verbose, $"Opening as EventPipe nettrace: {file.Name}");
-        int localRazor = 0;
-        using var source = new EventPipeEventSource(file.FullName);
-        source.Dynamic.AddCallbackForProviderEvents(
-            (providerName, eventName) => providerName is EventProcessor.CodeAnalysisEtwName or "Microsoft-DotNet-SDK-Razor-SourceGenerator"
-                ? EventFilterResponse.AcceptEvent
-                : EventFilterResponse.RejectProvider,
-            (TraceEvent e) =>
-            {
-                if (e.ProviderName == EventProcessor.CodeAnalysisEtwName)
-                    processor.ProcessEvent(e);
-                else if (e.ProviderName == "Microsoft-DotNet-SDK-Razor-SourceGenerator")
-                    localRazor++;
-            });
-        source.Process();
-        razorEventCount += localRazor;
-        LogVerbose(verbose, "EventPipe processing complete");
+        ProcessNettrace(file, processor, verbose, ref razorEventCount);
     }
     else
     {
         LogVerbose(verbose, $"Opening as ETL/ETLX via TraceLog.OpenOrConvert: {file.Name}");
-        using var traceLog = TraceLog.OpenOrConvert(file.FullName);
-        LogVerbose(verbose, $"TraceLog opened: {traceLog.Events.Count()} total events");
-        int localRazor = 0;
-        foreach (var e in traceLog.Events)
+        ProcessEtl(file, processor, verbose, ref razorEventCount);
+    }
+}
+
+static void ProcessZippedEtl(FileInfo file, EventProcessor processor, bool verbose, ref int razorEventCount)
+{
+    using var zipArchive = ZipFile.OpenRead(file.FullName);
+
+    // Find .etl entries
+    var etlEntries = zipArchive.Entries.Where(e => e.Name.EndsWith(".etl", StringComparison.OrdinalIgnoreCase)).ToList();
+    LogVerbose(verbose, $"Zip contains {etlEntries.Count} .etl entry/entries ({zipArchive.Entries.Count} total)");
+
+    if (etlEntries.Count == 0)
+    {
+        AnsiConsole.MarkupLine($"[yellow]Warning:[/] No .etl files found inside {file.Name}");
+        return;
+    }
+
+    foreach (var entry in etlEntries)
+    {
+        AnsiConsole.MarkupLine($"  [dim]Extracting: {entry.Name} ({entry.Length / (1024.0 * 1024.0):F1} MB compressed → {entry.Length / (1024.0 * 1024.0):F1} MB)[/]");
+        LogVerbose(verbose, $"Extracting {entry.FullName} ({entry.CompressedLength / 1024.0:F1} KB compressed, {entry.Length / 1024.0:F1} KB uncompressed)");
+
+        // Stream the entry to a temp file — avoids loading the full ETL into memory
+        var tempFile = Path.Combine(Path.GetTempPath(), $"generatorlog-{Guid.NewGuid():N}.etl");
+        try
+        {
+            LogVerbose(verbose, $"Streaming to temp file: {tempFile}");
+            using (var entryStream = entry.Open())
+            using (var tempStream = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 81920))
+            {
+                entryStream.CopyTo(tempStream, bufferSize: 81920);
+            }
+
+            LogVerbose(verbose, $"Extraction complete, processing ETL...");
+            ProcessEtl(new FileInfo(tempFile), processor, verbose, ref razorEventCount);
+        }
+        finally
+        {
+            LogVerbose(verbose, $"Cleaning up temp: {tempFile}");
+            try { File.Delete(tempFile); } catch { }
+        }
+    }
+}
+
+static void ProcessNettraceZip(FileInfo file, EventProcessor processor, bool verbose, ref int razorEventCount)
+{
+    var tempDir = Path.Combine(Path.GetTempPath(), $"generatorlog-{Guid.NewGuid():N}");
+    LogVerbose(verbose, $"Extracting zip to temp: {tempDir}");
+    Directory.CreateDirectory(tempDir);
+    try
+    {
+        ZipFile.ExtractToDirectory(file.FullName, tempDir);
+        var entries = Directory.GetFiles(tempDir, "*.nettrace");
+        LogVerbose(verbose, $"Zip contains {entries.Length} .nettrace file(s)");
+        foreach (var entry in entries)
+        {
+            AnsiConsole.MarkupLine($"  [dim]Processing entry: {Path.GetFileName(entry)}[/]");
+            ProcessTraceFile(new FileInfo(entry), processor, verbose, ref razorEventCount);
+        }
+    }
+    finally
+    {
+        LogVerbose(verbose, $"Cleaning up temp: {tempDir}");
+        try { Directory.Delete(tempDir, recursive: true); } catch { }
+    }
+}
+
+static void ProcessNettrace(FileInfo file, EventProcessor processor, bool verbose, ref int razorEventCount)
+{
+    int localRazor = 0;
+    using var source = new EventPipeEventSource(file.FullName);
+    source.Dynamic.AddCallbackForProviderEvents(
+        (providerName, eventName) => providerName is EventProcessor.CodeAnalysisEtwName or "Microsoft-DotNet-SDK-Razor-SourceGenerator"
+            ? EventFilterResponse.AcceptEvent
+            : EventFilterResponse.RejectProvider,
+        (TraceEvent e) =>
         {
             if (e.ProviderName == EventProcessor.CodeAnalysisEtwName)
                 processor.ProcessEvent(e);
             else if (e.ProviderName == "Microsoft-DotNet-SDK-Razor-SourceGenerator")
                 localRazor++;
-        }
-        razorEventCount += localRazor;
-        LogVerbose(verbose, "ETL processing complete");
+        });
+    source.Process();
+    razorEventCount += localRazor;
+    LogVerbose(verbose, "EventPipe processing complete");
+}
+
+static void ProcessEtl(FileInfo file, EventProcessor processor, bool verbose, ref int razorEventCount)
+{
+    using var traceLog = TraceLog.OpenOrConvert(file.FullName);
+    LogVerbose(verbose, $"TraceLog opened: {traceLog.Events.Count()} total events");
+    int localRazor = 0;
+    foreach (var e in traceLog.Events)
+    {
+        if (e.ProviderName == EventProcessor.CodeAnalysisEtwName)
+            processor.ProcessEvent(e);
+        else if (e.ProviderName == "Microsoft-DotNet-SDK-Razor-SourceGenerator")
+            localRazor++;
     }
+    razorEventCount += localRazor;
+    LogVerbose(verbose, "ETL processing complete");
 }
 
 static void LogVerbose(bool verbose, string message)
