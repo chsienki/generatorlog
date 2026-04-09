@@ -44,7 +44,7 @@ dnx generatorlog@0.0.6-alpha --pid <pid>
 Analyze trace files containing Roslyn source generator events and display statistics.
 
 ```
-dnx generatorlog-analyze@0.0.6-alpha [options] <file.etl|file.nettrace|file.zip> [...]
+dnx generatorlog.analyze@0.0.6-alpha [options] <file.etl|file.nettrace|file.zip> [...]
 ```
 
 **Options:**
