@@ -4,7 +4,7 @@
 
 GeneratorLog is a pair of .NET 10 dotnet tools for recording and analyzing Roslyn source generator ETW events:
 
-- **GeneratorLog** (`src/GeneratorLog/`) — Records `Microsoft-CodeAnalysis-General` ETW/EventPipe events to trace files
+- **GeneratorLog** (`src/GeneratorLog/`) — Records `Microsoft-CodeAnalysis-General` and `Microsoft-DotNet-SDK-Razor-SourceGenerator` ETW/EventPipe events to trace files
 - **GeneratorLog.Analyze** (`src/GeneratorLog.Analyze/`) — Reads trace files and displays per-generator timing statistics
 
 Both tools are packaged as NuGet dotnet tools (via `PackAsTool=true`) and are designed to be run one-shot with `dnx` (.NET 10's tool execution script).
@@ -37,7 +37,9 @@ docs/
 
 ### ETW Events
 
-The tools work with the `Microsoft-CodeAnalysis-General` EventSource provider. Key events:
+The tools capture events from two providers:
+
+#### Microsoft-CodeAnalysis-General (primary)
 
 | ETW Name | EventPipe Name | Purpose |
 |---|---|---|
@@ -49,6 +51,18 @@ The tools work with the `Microsoft-CodeAnalysis-General` EventSource provider. K
 
 **Important:** Event names differ between ETW (.etl) and EventPipe (.nettrace). The `EventProcessor` handles both naming conventions.
 
+#### Microsoft-DotNet-SDK-Razor-SourceGenerator (supplementary)
+
+The Razor source generator (`Microsoft.NET.Sdk.Razor.SourceGenerators`) has its own EventSource with detailed events like `RazorCodeGenerateStart/Stop`, `ParseRazorDocumentStart/Stop`, `DiscoverTagHelpersFromCompilationStart/Stop`, etc. These are captured at Informational level.
+
+The analyzer does **not** parse Razor events but counts them and notes their presence in the output:
+```
+Note: This trace also contains 42 Razor source generator event(s)
+(Microsoft-DotNet-SDK-Razor-SourceGenerator).
+```
+
+The Razor EventSource definition lives in the `razor` repo at `src/Compiler/Microsoft.CodeAnalysis.Razor.Compiler/src/SourceGenerators/RazorSourceGeneratorEventSource.cs`.
+
 ### Recording Modes
 
 1. **ETW (Windows only, admin required):** Uses two `TraceEventSession`s — one real-time for live counting, one file-based for ETL output. Cannot use `.Source` on a file-based session.
@@ -57,7 +71,7 @@ The tools work with the `Microsoft-CodeAnalysis-General` EventSource provider. K
 
 3. **EventPipe `-- <command>` (recommended cross-platform):** Sets environment variables on child process:
    - `DOTNET_EnableEventPipe=1` — enables EventPipe for all .NET processes in the tree
-   - `DOTNET_EventPipeConfig=Microsoft-CodeAnalysis-General:0xFFFFFFFFFFFFFFFF:5` — verbose level
+   - `DOTNET_EventPipeConfig=Microsoft-CodeAnalysis-General:0xFFFFFFFFFFFFFFFF:5,Microsoft-DotNet-SDK-Razor-SourceGenerator:0xFFFFFFFFFFFFFFFF:4` — both providers
    - `DOTNET_MSBUILD_DISABLENODEREUSE=1` / `MSBUILDDISABLENODEREUSE=1` — forces fresh MSBuild workers
    - `UseSharedCompilation=false` — disables compiler server (VBCSCompiler)
 
@@ -73,10 +87,14 @@ The tools work with the `Microsoft-CodeAnalysis-General` EventSource provider. K
 ### Trace File Formats
 
 - `.etl` — Windows ETW trace (from system-wide recording). Read via `TraceLog.OpenOrConvert`.
+- `.etlx` — Converted ETL format. Read via `TraceLog.OpenOrConvert`.
 - `.nettrace` — EventPipe trace (from `--pid` or `-- <command>`). Read via `EventPipeEventSource`.
 - `.nettrace.zip` — Bundle of multiple `.nettrace` files from multi-process builds. Extracted and processed individually.
+- `.etl.zip` — Compressed ETL file (commonly produced by PerfView). The ETL is streamed from the zip to a temp file using buffered I/O to avoid loading the entire file into memory, then processed via `TraceLog.OpenOrConvert`.
 
-The analyzer dispatches by file extension.
+The analyzer dispatches by filename pattern: `.etl.zip` is checked first (full name match), then `.zip` (for nettrace bundles), then `.nettrace`, then everything else falls through to the ETL/ETLX path.
+
+**Note:** `TraceEvent` APIs (`ETWTraceEventSource`, `TraceLog`) only accept file paths, not streams. For zipped formats we must extract to a temp file first. We use 81KB buffered streaming to keep memory usage low even for multi-GB ETL files.
 
 ## Build and Test
 
@@ -112,9 +130,13 @@ The event processing logic was adapted from:
 
 - `TraceEventSession` with a filename creates a file-based session that **cannot** use `.Source` for callbacks. Use a separate real-time session for live event counting.
 - `DOTNET_EventPipeConfig` keywords must be 64-bit hex (`0xFFFFFFFFFFFFFFFF`), not 32-bit.
+- `DOTNET_EventPipeConfig` accepts multiple providers comma-separated: `Provider1:keywords:level,Provider2:keywords:level`.
 - `PackAsTool` in `Directory.Build.props` with `Condition="'$(OutputType)' == 'Exe'"` does NOT work because OutputType isn't set yet when props evaluate. Put `PackAsTool` in each tool's `.csproj`.
 - The `Table` record in Models.cs is named `StateTable` to avoid collision with `Spectre.Console.Table`.
 - EventPipe `EventPipeEventSource` and ETW `TraceLog` have the same event payloads but different event names (see table above).
+- **UAC elevation on Windows:** When self-elevating via `runas`, the elevated process opens a new console window that closes on exit. The `--elevated` sentinel flag is passed so the elevated process wraps execution in try/catch with "Press Enter to close" — otherwise errors are invisible. Use `--verbose` to see the exact exe path and arguments used for elevation.
+- **No `.nettrace` merge API exists.** There is no way to programmatically write or merge `.nettrace` files. When multiple processes produce trace files with generator events (multi-project builds), they are zipped into a `.nettrace.zip` bundle instead. The analyzer handles zip bundles transparently.
+- **`TraceEvent` has no stream-based APIs.** `ETWTraceEventSource` and `TraceLog` only accept file paths. For `.etl.zip` files, we must extract to a temp file first.
 
 ## Publishing a New Version
 
@@ -136,7 +158,7 @@ All `dnx` commands in `README.md`, `docs/recording-guide.md`, and `.github/copil
 
 ```powershell
 $old = '0.0.7-alpha'  # previous version
-$new = '0.0.7-alpha'  # new version
+$new = '0.0.8-alpha'  # new version
 foreach ($f in @('README.md', 'docs\recording-guide.md', '.github\copilot-instructions.md')) {
     (Get-Content $f -Raw) -replace [regex]::Escape($old), $new | Set-Content $f -NoNewline
 }
