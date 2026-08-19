@@ -432,8 +432,11 @@ static async Task<int> RunEventPipe(string? outputPath, int pid)
 
     var providers = new[]
     {
-        new EventPipeProvider("Microsoft-CodeAnalysis-General", EventLevel.Verbose),
-        new EventPipeProvider("Microsoft-DotNet-SDK-Razor-SourceGenerator", EventLevel.Informational)
+        // Enable all keywords (-1). The generator timing events require the Performance
+        // keyword and the pipeline NodeTransform events require the Correctness keyword;
+        // leaving keywords at the default of 0 captures none of them.
+        new EventPipeProvider("Microsoft-CodeAnalysis-General", EventLevel.Verbose, keywords: -1),
+        new EventPipeProvider("Microsoft-DotNet-SDK-Razor-SourceGenerator", EventLevel.Informational, keywords: -1)
     };
     Log.Debug("Configured EventPipe providers: Microsoft-CodeAnalysis-General (Verbose), Microsoft-DotNet-SDK-Razor-SourceGenerator (Informational)");
 
